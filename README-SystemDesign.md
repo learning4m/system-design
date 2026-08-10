@@ -1,20 +1,108 @@
-# Senior Architect Interview Guide — Microservices & Production System Design
+# Senior Architect Guide — Microservices & Production System Design
 
-This guide expands the questions from `microservices-questions.txt` into interview-ready answers for a Senior Engineer / Solution Architect / Senior Architect discussion.
+---
 
-The goal is not to memorize definitions. For architect-level interviews, answer in this order whenever possible:
+# Question Index
 
-1. **Clarify the symptom and blast radius.**
-2. **Use evidence before changing the system** — metrics, traces, logs, profiles, database plans, broker metrics, Kubernetes events.
-3. **Identify the constrained resource or failed dependency.**
-4. **Contain the failure** with timeouts, isolation, load shedding, graceful degradation, backpressure, or scaling.
-5. **Fix the root cause**, not just the symptom.
-6. **Explain trade-offs** — consistency, availability, latency, cost, operational complexity.
-7. **Add prevention** — SLOs, alerts, capacity tests, dashboards, chaos/failure testing, runbooks.
+Click any question below to jump directly to its detailed answer.
+
+## Part I — Production Scenario Questions
+
+1. [API response time suddenly increases from 200 ms to 5 seconds. How would you investigate?](#production-q1)
+2. [A downstream microservice becomes slow. How do you prevent it from impacting the entire system?](#production-q2)
+3. [When would you use Circuit Breaker, Retry, Timeout, and Bulkhead patterns?](#production-q3)
+4. [Your database connection pool is exhausted in production. What could be the reasons?](#production-q4)
+5. [How would you handle duplicate payment requests caused by retries or multiple button clicks?](#production-q5)
+6. [Where would you store an idempotency key, and how would you handle concurrent requests?](#production-q6)
+7. [Redis goes down. Should your application fail as well? How would you design a fallback?](#production-q7)
+8. [How do you solve cache invalidation when multiple service instances are running?](#production-q8)
+9. [Your API works well with 100 users but fails with 10,000 concurrent users. What would you check first?](#production-q9)
+10. [How would you process a 5 GB CSV file without running into an OutOfMemoryError?](#production-q10)
+11. [When would you choose synchronous communication over asynchronous messaging?](#production-q11)
+12. [What happens if a Kafka consumer processes a message but crashes before committing the offset?](#production-q12)
+13. [How do you ensure the same Kafka event isn’t processed twice?](#production-q13)
+14. [Your Kubernetes pod keeps restarting, but the logs show no obvious errors. How would you debug it?](#production-q14)
+15. [CPU usage looks normal, but API latency is very high. What could be happening?](#production-q15)
+16. [How do you identify whether the bottleneck is in the application, database, network, or a downstream service?](#production-q16)
+17. [A SQL query takes 10 seconds in production but runs fast in development. How would you investigate?](#production-q17)
+18. [How do you handle distributed transactions across microservices?](#production-q18)
+19. [When should you use the Saga Pattern, and how do you deal with compensation failures?](#production-q19)
+20. [The same request reaches your service twice due to a network retry. How do you guarantee consistent results?](#production-q20)
+21. [How would you deploy a new Spring Boot version with zero downtime?](#production-q21)
+22. [What happens to in-flight requests during Kubernetes pod termination, and how do you implement graceful shutdown?](#production-q22)
+23. [How would you design rate limiting for an API serving millions of users?](#production-q23)
+24. [Your application’s memory keeps growing and crashes after a few days. How would you investigate a memory leak?](#production-q24)
+25. [A production issue occurs only under heavy traffic and can’t be reproduced locally. What would be your debugging approach?](#production-q25)
+
+## Part II — Microservices Architecture Fundamentals
+
+1. [Why would you choose Microservices over a Monolith?](#fundamentals-q1)
+2. [How do you decide whether two services should be separate?](#fundamentals-q2)
+3. [REST vs Kafka — when would you choose one over the other?](#fundamentals-q3)
+4. [What happens when one service becomes unavailable?](#fundamentals-q4)
+5. [How does an API Gateway help in a Microservices architecture?](#fundamentals-q5)
+6. [What problem does Service Discovery solve?](#fundamentals-q6)
+7. [How does a Circuit Breaker prevent cascading failures?](#fundamentals-q7)
+8. [Retry vs Timeout — when should you use each?](#fundamentals-q8)
+9. [How would you make a Microservice API idempotent?](#fundamentals-q9)
+10. [How would you handle distributed transactions?](#fundamentals-q10)
+11. [What is the Saga Pattern, and when would you use it?](#fundamentals-q11)
+12. [How do you maintain data consistency between services?](#fundamentals-q12)
+13. [What happens if Kafka delivers the same event twice?](#fundamentals-q13)
+14. [How would you handle Kafka consumer lag?](#fundamentals-q14)
+15. [How would you trace a request across multiple Microservices?](#fundamentals-q15)
+16. [What metrics would you monitor for a production Microservice?](#fundamentals-q16)
+17. [How would you secure communication between Microservices?](#fundamentals-q17)
+18. [Why might adding more instances not improve performance?](#fundamentals-q18)
+19. [How would you handle backward compatibility when changing an API?](#fundamentals-q19)
+20. [One Microservice suddenly becomes slow in production. What's your step-by-step debugging approach?](#fundamentals-q20)
+
+## Part III — Rapid Production Scenarios
+
+1. [Your API suddenly becomes slow. How do you identify the bottleneck?](#rapid-q1)
+2. [Two requests create the same order at almost the same time. How do you prevent duplicates?](#rapid-q2)
+3. [A Kafka message is consumed twice. How do you make the consumer idempotent?](#rapid-q3)
+4. [One microservice goes down during checkout. What should happen to the overall workflow?](#rapid-q4)
+5. [Database queries are fast, but the API is slow. What else could be causing the latency?](#rapid-q5)
+6. [Your service works in staging but randomly fails in production. Where do you start?](#rapid-q6)
+7. [A payment succeeds, but Order Service doesn't receive the confirmation. How would you handle this?](#rapid-q7)
+8. [CPU is only 20%, but requests are timing out. What would you investigate?](#rapid-q8)
+9. [One service is receiving much more traffic than others. How would you handle it?](#rapid-q9)
+10. [Kafka consumer lag keeps increasing. What could be the reason?](#rapid-q10)
+11. [A database connection pool is exhausted while the database itself is healthy. Why?](#rapid-q11)
+12. [Adding more instances doesn't improve application performance. What could be the bottleneck?](#rapid-q12)
+13. [Users are seeing stale data even though the database has been updated. How would you debug it?](#rapid-q13)
+14. [A request travels through 6 microservices. How would you trace it end-to-end?](#rapid-q14)
+15. [An external API takes 20 seconds to respond. How would you protect your service?](#rapid-q15)
+16. [A retry mechanism causes duplicate transactions. How would you fix it?](#rapid-q16)
+17. [One slow microservice starts affecting multiple services. Which resilience pattern would you consider?](#rapid-q17)
+18. [Your application suddenly starts consuming excessive memory. How would you investigate?](#rapid-q18)
+19. [Production has an issue, but there are no exceptions in the logs. What would you check?](#rapid-q19)
+20. [You have 15 minutes to find the root cause of a critical production incident. What's your approach?](#rapid-q20)
+1. [Latency budget](#rapid-q1)
+2. [Cascading failure model](#rapid-q2)
+3. [Idempotency model](#rapid-q3)
+4. [Reliable DB + Kafka model](#rapid-q4)
+5. [Kubernetes availability model](#rapid-q5)
+6. [Observability model](#rapid-q6)
 
 ---
 
 # Part I — Production Scenario Questions
+
+<a id="production-q1"></a>
+### Flow diagram
+
+```mermaid
+flowchart LR
+    C[Client] --> I[Ingress / Gateway]
+    I --> A[Service A]
+    A --> DB[(Database)]
+    A --> R[(Redis)]
+    A --> B[Service B]
+    B --> X[External API]
+    A -. trace each span .-> O[Metrics / Traces / Logs]
+```
 
 ## 1. API response time suddenly increases from 200 ms to 5 seconds. How would you investigate?
 
@@ -109,6 +197,20 @@ Do not say, "I would check logs first." Say:
 
 ---
 
+<a id="production-q2"></a>
+### Flow diagram
+
+```mermaid
+flowchart LR
+    R[Request] --> BH[Bulkhead]
+    BH --> T[Timeout]
+    T --> CB[Circuit Breaker]
+    CB --> D[Downstream Service]
+    D -->|Transient failure| RT[Bounded Retry]
+    RT --> D
+    CB -->|Open / failure| F[Fallback / Fail Fast]
+```
+
 ## 2. A downstream microservice becomes slow. How do you prevent it from impacting the entire system?
 
 A slow dependency is often more dangerous than a failed dependency because requests remain alive while consuming threads, connections and memory.
@@ -192,6 +294,7 @@ Resilience is not one annotation. The most important controls are **bounded wait
 
 ---
 
+<a id="production-q3"></a>
 ## 3. When would you use Circuit Breaker, Retry, Timeout, and Bulkhead patterns?
 
 They solve different failure modes and are usually complementary.
@@ -233,6 +336,7 @@ Exact library decoration order matters, but the architectural intention is more 
 
 ---
 
+<a id="production-q4"></a>
 ## 4. Your database connection pool is exhausted in production. What could be the reasons?
 
 Connection-pool exhaustion means requests are waiting for a DB connection. It does **not** necessarily mean the database itself is down.
@@ -279,6 +383,28 @@ If the database supports only 500 effective sessions, horizontally scaling the s
 Do not size a JDBC pool as "the larger the better." Size it using measured DB concurrency, query latency, throughput and database capacity.
 
 ---
+
+<a id="production-q5"></a>
+### Flow diagram
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant P as Payment Service
+    participant DB as Database
+    C->>P: POST /payments + Idempotency-Key
+    P->>DB: INSERT key (UNIQUE)
+    alt First request
+        DB-->>P: Insert succeeds
+        P->>P: Execute payment
+        P->>DB: Store SUCCESS + response
+        P-->>C: Payment result
+    else Duplicate request
+        DB-->>P: Unique-key conflict
+        P->>DB: Read stored result
+        P-->>C: Same logical result
+    end
+```
 
 ## 5. How would you handle duplicate payment requests caused by retries or multiple button clicks?
 
@@ -335,6 +461,7 @@ If calling an external PSP, pass your idempotency identifier when the provider s
 
 ---
 
+<a id="production-q6"></a>
 ## 6. Where would you store an idempotency key, and how would you handle concurrent requests?
 
 ### Storage options
@@ -381,6 +508,22 @@ The correct behavior depends on the API semantics.
 
 ---
 
+<a id="production-q7"></a>
+### Flow diagram
+
+```mermaid
+flowchart TD
+    A[Application reads data] --> R{Redis available?}
+    R -->|Yes| H{Cache hit?}
+    H -->|Yes| V[Return cached value]
+    H -->|No| DB[(Database)]
+    R -->|No| D{Redis only a cache?}
+    D -->|Yes| DB
+    D -->|No - correctness dependency| FF[Fail affected capability safely]
+    DB --> P[Protect DB from stampede]
+    P --> V2[Return source-of-truth value]
+```
+
 ## 7. Redis goes down. Should your application fail as well? How would you design a fallback?
 
 It depends on what Redis is used for.
@@ -418,6 +561,21 @@ Example: if Redis is the authoritative store for an account lock, bypassing it m
 > Whether Redis failure should fail the application depends on whether Redis is an optimization or a correctness dependency.
 
 ---
+
+<a id="production-q8"></a>
+### Flow diagram
+
+```mermaid
+flowchart LR
+    W[Service instance updates DB] --> DB[(Database)]
+    W --> INV[Invalidate distributed cache]
+    W --> E[Publish invalidation event]
+    E --> A[Pod A local cache]
+    E --> B[Pod B local cache]
+    E --> C[Pod C local cache]
+    R[Reader] --> LC[Local / Redis cache]
+    LC -->|Miss| DB
+```
 
 ## 8. How do you solve cache invalidation when multiple service instances are running?
 
@@ -485,6 +643,7 @@ Solutions depend on consistency requirements: version checks, delayed double del
 
 ---
 
+<a id="production-q9"></a>
 ## 9. Your API works well with 100 users but fails with 10,000 concurrent users. What would you check first?
 
 This is usually a **capacity/saturation** question.
@@ -538,6 +697,7 @@ Do not immediately scale pods. First identify the shared bottleneck. Ten more po
 
 ---
 
+<a id="production-q10"></a>
 ## 10. How would you process a 5 GB CSV file without running into an OutOfMemoryError?
 
 Never load the complete file into memory.
@@ -587,6 +747,7 @@ Use bounded concurrency. Do not read 5 GB and submit every row to an executor. T
 
 ---
 
+<a id="production-q11"></a>
 ## 11. When would you choose synchronous communication over asynchronous messaging?
 
 Choose based on business semantics, not fashion.
@@ -644,6 +805,23 @@ Do not replace every REST call with Kafka. A user waiting for an immediate valid
 
 ---
 
+<a id="production-q12"></a>
+### Flow diagram
+
+```mermaid
+sequenceDiagram
+    participant K as Kafka
+    participant C as Consumer
+    participant DB as Business DB
+    K->>C: Record offset 100
+    C->>DB: Apply business side effect
+    DB-->>C: Commit succeeds
+    Note over C: Consumer crashes before offset commit
+    K->>C: Redeliver offset 100
+    C->>DB: Idempotency check prevents duplicate effect
+    C->>K: Commit offset
+```
+
 ## 12. What happens if a Kafka consumer processes a message but crashes before committing the offset?
 
 The message will normally be delivered again after restart/rebalance because Kafka has no committed evidence that processing completed.
@@ -671,6 +849,7 @@ If processing sends an email, charges a card, or inserts an order without idempo
 
 ---
 
+<a id="production-q13"></a>
 ## 13. How do you ensure the same Kafka event isn’t processed twice?
 
 Strictly, Kafka may deliver a record more than once under normal failure/retry scenarios. Design the **effect** to be idempotent.
@@ -715,6 +894,7 @@ Kafka transactions/exactly-once semantics are powerful for Kafka read-process-wr
 
 ---
 
+<a id="production-q14"></a>
 ## 14. Your Kubernetes pod keeps restarting, but the logs show no obvious errors. How would you debug it?
 
 Application logs are only one evidence source. First inspect Kubernetes state and the previous container termination.
@@ -764,6 +944,7 @@ Use:
 
 ---
 
+<a id="production-q15"></a>
 ## 15. CPU usage looks normal, but API latency is very high. What could be happening?
 
 Low CPU usually points to **waiting**, not necessarily health.
@@ -798,6 +979,7 @@ For WebFlux, a small number of Netty event-loop threads being blocked by JDBC/fi
 
 ---
 
+<a id="production-q16"></a>
 ## 16. How do you identify whether the bottleneck is in the application, database, network, or a downstream service?
 
 Use **layered isolation with distributed traces and correlated metrics**.
@@ -852,6 +1034,7 @@ Architect principle: **measure each boundary**.
 
 ---
 
+<a id="production-q17"></a>
 ## 17. A SQL query takes 10 seconds in production but runs fast in development. How would you investigate?
 
 Do not assume the SQL is identical in behavior simply because the text is identical.
@@ -878,6 +1061,20 @@ DB execution time != application-observed DB call time
 Connection acquisition, network transfer, row mapping and transaction blocking can contribute.
 
 ---
+
+<a id="production-q18"></a>
+### Flow diagram
+
+```mermaid
+flowchart LR
+    O[Order Service] -->|Local TX| ODB[(Order DB)]
+    ODB --> OE[OrderCreated]
+    OE --> P[Payment Service]
+    P -->|Local TX| PDB[(Payment DB)]
+    PDB --> PE[PaymentCompleted / Failed]
+    PE --> O
+    O --> S[Update Order State]
+```
 
 ## 18. How do you handle distributed transactions across microservices?
 
@@ -923,6 +1120,20 @@ Patterns:
 Distributed consistency is a business design question. Define which invariants must be immediately consistent and which can be eventually consistent.
 
 ---
+
+<a id="production-q19"></a>
+### Flow diagram
+
+```mermaid
+flowchart LR
+    O[Create Order] --> I[Reserve Inventory]
+    I --> P[Authorize Payment]
+    P --> S[Arrange Shipment]
+    P -->|Failure| CI[Compensate: Release Inventory]
+    CI --> CO[Compensate: Cancel Order]
+    CI -->|Compensation fails| CP[COMPENSATION_PENDING]
+    CP --> R[Retry / Reconciliation / Manual intervention]
+```
 
 ## 19. When should you use the Saga Pattern, and how do you deal with compensation failures?
 
@@ -979,6 +1190,7 @@ Example: refund failure after an order cancellation should move the Saga into so
 
 ---
 
+<a id="production-q20"></a>
 ## 20. The same request reaches your service twice due to a network retry. How do you guarantee consistent results?
 
 Use the same idempotency principles as payment duplication.
@@ -1010,6 +1222,21 @@ HTTP method semantics alone do not guarantee database correctness. Two concurren
 - transactional idempotency records.
 
 ---
+
+<a id="production-q21"></a>
+### Flow diagram
+
+```mermaid
+flowchart LR
+    LB[Service / Load Balancer] --> V1A[v1 Pod]
+    LB --> V1B[v1 Pod]
+    N[Start v2 Pod] --> RD{Readiness passes?}
+    RD -->|Yes| V2[v2 Pod]
+    V2 --> LB
+    RD -->|No| N
+    V2 --> T[Gracefully terminate one v1]
+    T --> R[Repeat until all pods are v2]
+```
 
 ## 21. How would you deploy a new Spring Boot version with zero downtime?
 
@@ -1050,6 +1277,24 @@ Do not deploy a breaking schema change that makes still-running v1 pods fail.
 
 ---
 
+<a id="production-q22"></a>
+### Flow diagram
+
+```mermaid
+sequenceDiagram
+    participant K as Kubernetes
+    participant P as Pod
+    participant LB as Service / Load Balancer
+    participant A as Spring Boot
+    K->>P: Pod termination begins
+    P->>LB: Stop becoming eligible for new traffic
+    K->>A: SIGTERM
+    A->>A: Stop accepting new work
+    A->>A: Finish in-flight requests
+    A-->>K: Process exits
+    Note over K,A: SIGKILL only if grace period expires
+```
+
 ## 22. What happens to in-flight requests during Kubernetes pod termination, and how do you implement graceful shutdown?
 
 When a pod is terminated, Kubernetes initiates a shutdown sequence. The application must stop receiving new traffic and finish current work before the termination grace period expires.
@@ -1082,6 +1327,7 @@ Also consider background work:
 
 ---
 
+<a id="production-q23"></a>
 ## 23. How would you design rate limiting for an API serving millions of users?
 
 First define the policy:
@@ -1136,6 +1382,7 @@ Rate limiting protects both fairness and system capacity. Also use load shedding
 
 ---
 
+<a id="production-q24"></a>
 ## 24. Your application’s memory keeps growing and crashes after a few days. How would you investigate a memory leak?
 
 First determine what memory is growing:
@@ -1184,6 +1431,7 @@ Bound every cache and queue unless there is a strong reason not to.
 
 ---
 
+<a id="production-q25"></a>
 ## 25. A production issue occurs only under heavy traffic and can’t be reproduced locally. What would be your debugging approach?
 
 Heavy-traffic-only bugs are often race conditions, saturation problems or production topology effects.
@@ -1219,6 +1467,7 @@ Mitigate first when customer impact is severe — rollback, disable feature, she
 
 # Part II — Microservices Architecture Fundamentals
 
+<a id="fundamentals-q1"></a>
 ## 1. Why would you choose Microservices over a Monolith?
 
 Do not answer "because microservices scale better." A well-designed monolith can scale horizontally.
@@ -1256,6 +1505,7 @@ Start with a modular monolith unless there is a clear driver for distribution. E
 
 ---
 
+<a id="fundamentals-q2"></a>
 ## 2. How do you decide whether two services should be separate?
 
 Use **business capability and change coupling**.
@@ -1296,6 +1546,20 @@ Boundaries should maximize cohesion within a service and minimize coupling betwe
 
 ---
 
+<a id="fundamentals-q3"></a>
+### Decision flow
+
+```mermaid
+flowchart TD
+    N[Need service-to-service communication] --> Q{Caller needs immediate result?}
+    Q -->|Yes| S[REST / gRPC]
+    Q -->|No| E{Durable event, buffering or fan-out useful?}
+    E -->|Yes| K[Kafka / Messaging]
+    E -->|No| S
+    K --> EC[Eventual consistency + idempotent consumers]
+    S --> TC[Timeouts + resilience for temporal coupling]
+```
+
 ## 3. REST vs Kafka — when would you choose one over the other?
 
 Use REST/gRPC for synchronous queries/commands requiring an immediate response. Use Kafka for durable asynchronous events, buffering, fan-out and temporal decoupling.
@@ -1315,6 +1579,7 @@ Avoid turning Kafka into hidden synchronous RPC by publishing a request and bloc
 
 ---
 
+<a id="fundamentals-q4"></a>
 ## 4. What happens when one service becomes unavailable?
 
 The answer depends on whether it is critical and whether the interaction is synchronous.
@@ -1338,6 +1603,18 @@ Example e-commerce page:
 The architecture should define which dependencies are **required** and which are **degradable**.
 
 ---
+
+<a id="fundamentals-q5"></a>
+### Flow diagram
+
+```mermaid
+flowchart LR
+    C[Client] --> IG[Ingress / Load Balancer]
+    IG --> G[API Gateway]
+    G -->|Auth / Rate limit / CORS / Routing| A[Service A]
+    G --> B[Service B]
+    G --> C2[Service C]
+```
 
 ## 5. How does an API Gateway help in a Microservices architecture?
 
@@ -1365,6 +1642,18 @@ Ingress/load balancer primarily gets external traffic into the cluster and perfo
 
 ---
 
+<a id="fundamentals-q6"></a>
+### Flow diagram
+
+```mermaid
+flowchart LR
+    C[Caller] --> DNS[Stable service name / DNS]
+    DNS --> S[Kubernetes Service / Discovery]
+    S --> P1[Pod 1]
+    S --> P2[Pod 2]
+    S --> P3[Pod 3]
+```
+
 ## 6. What problem does Service Discovery solve?
 
 In dynamic infrastructure, service instances change continuously:
@@ -1390,6 +1679,20 @@ Service discovery and load balancing are related but distinct: discovery answers
 
 ---
 
+<a id="fundamentals-q7"></a>
+### Cascading-failure flow
+
+```mermaid
+flowchart TD
+    B[Service B becomes slow] --> A[Service A waits]
+    A --> P[Threads / connections fill]
+    P --> Q[Queues grow]
+    Q --> F[Other requests fail]
+    B --> CB[Circuit breaker detects failures]
+    CB --> O[OPEN: fail fast]
+    O --> REC[Dependency gets recovery time]
+```
+
 ## 7. How does a Circuit Breaker prevent cascading failures?
 
 Without a circuit breaker:
@@ -1409,6 +1712,7 @@ Circuit breakers should be combined with timeouts and bulkheads. A breaker that 
 
 ---
 
+<a id="fundamentals-q8"></a>
 ## 8. Retry vs Timeout — when should you use each?
 
 A timeout bounds how long an attempt can consume resources. A retry starts another attempt after a qualifying failure.
@@ -1430,6 +1734,7 @@ Retries should have exponential backoff and jitter to avoid synchronized retry s
 
 ---
 
+<a id="fundamentals-q9"></a>
 ## 9. How would you make a Microservice API idempotent?
 
 Choose one or more:
@@ -1451,6 +1756,7 @@ The strongest idempotency control is usually at the durable state boundary, not 
 
 ---
 
+<a id="fundamentals-q10"></a>
 ## 10. How would you handle distributed transactions?
 
 Use local ACID transactions plus Saga/outbox/idempotency for workflows spanning service-owned databases. Reserve distributed XA/2PC for environments where its operational and availability trade-offs are deliberately accepted.
@@ -1466,6 +1772,7 @@ A good interview answer mentions:
 
 ---
 
+<a id="fundamentals-q11"></a>
 ## 11. What is the Saga Pattern, and when would you use it?
 
 A Saga is a sequence of local transactions coordinated to implement a distributed business workflow. If a later step fails, compensating actions logically undo or counteract earlier steps where possible.
@@ -1481,6 +1788,7 @@ Do not call compensation a technical rollback. Shipping a physical parcel, sendi
 
 ---
 
+<a id="fundamentals-q12"></a>
 ## 12. How do you maintain data consistency between services?
 
 First avoid shared-table ownership. Each service should own its authoritative data.
@@ -1508,6 +1816,7 @@ Example: product name in an Order history may intentionally be a historical snap
 
 ---
 
+<a id="fundamentals-q13"></a>
 ## 13. What happens if Kafka delivers the same event twice?
 
 The consumer must assume duplicates can occur. The event's side effect should be idempotent.
@@ -1526,6 +1835,7 @@ If the event was already processed, skip the mutation and allow the offset to pr
 
 ---
 
+<a id="fundamentals-q14"></a>
 ## 14. How would you handle Kafka consumer lag?
 
 Lag means consumers are not advancing as quickly as producers.
@@ -1568,6 +1878,19 @@ Adding consumers beyond partitions will not improve consumption throughput.
 
 ---
 
+<a id="fundamentals-q15"></a>
+### Distributed tracing flow
+
+```mermaid
+flowchart LR
+    G[Gateway<br/>traceId=T1] --> O[Order Service<br/>traceId=T1]
+    O --> DB[(SQL span)]
+    O --> P[Payment Service<br/>traceId=T1]
+    P --> R[(Redis span)]
+    O --> K[Kafka event<br/>trace context]
+    K --> N[Notification Consumer<br/>traceId=T1]
+```
+
 ## 15. How would you trace a request across multiple Microservices?
 
 Use distributed tracing with W3C Trace Context/OpenTelemetry-style propagation.
@@ -1599,6 +1922,7 @@ Correlate logs with trace/span IDs and expose RED metrics. A trace shows **where
 
 ---
 
+<a id="fundamentals-q16"></a>
 ## 16. What metrics would you monitor for a production Microservice?
 
 Start with service-level indicators:
@@ -1636,6 +1960,7 @@ A service can be technically "green" while the business workflow is broken.
 
 ---
 
+<a id="fundamentals-q17"></a>
 ## 17. How would you secure communication between Microservices?
 
 Use defense in depth.
@@ -1668,6 +1993,7 @@ If TLS terminates at ingress, the backend application does not directly particip
 
 ---
 
+<a id="fundamentals-q18"></a>
 ## 18. Why might adding more instances not improve performance?
 
 Because the bottleneck may be elsewhere.
@@ -1698,6 +2024,7 @@ Scaling should follow bottleneck analysis, not precede it.
 
 ---
 
+<a id="fundamentals-q19"></a>
 ## 19. How would you handle backward compatibility when changing an API?
 
 Prefer additive changes.
@@ -1738,6 +2065,7 @@ Kafka schemas also require compatibility strategy. Event evolution is as importa
 
 ---
 
+<a id="fundamentals-q20"></a>
 ## 20. One Microservice suddenly becomes slow in production. What's your step-by-step debugging approach?
 
 Use a repeatable incident workflow:
@@ -1763,6 +2091,7 @@ This is the consolidated form of the latency/debugging questions in this guide. 
 
 These overlap with Part I, but interviewers often ask them in a shorter, more adversarial format. The answers below emphasize what you should say first.
 
+<a id="rapid-q1"></a>
 ## 1. Your API suddenly becomes slow. How do you identify the bottleneck?
 
 Start with a distributed trace for slow requests and break total latency into gateway, application, database and downstream spans. In parallel, compare p95/p99 latency with pool saturation, GC, CPU throttling and recent deployments. Do not optimize anything until you know where the time is being spent.
@@ -1773,6 +2102,7 @@ Start with a distributed trace for slow requests and break total latency into ga
 
 ---
 
+<a id="rapid-q2"></a>
 ## 2. Two requests create the same order at almost the same time. How do you prevent duplicates?
 
 Use a durable uniqueness invariant, not an in-memory check.
@@ -1787,6 +2117,7 @@ If using optimistic locking, remember that optimistic locking prevents lost upda
 
 ---
 
+<a id="rapid-q3"></a>
 ## 3. A Kafka message is consumed twice. How do you make the consumer idempotent?
 
 Use stable event IDs plus a unique inbox/processed-event record in the same DB transaction as the business mutation, or enforce business-level uniqueness. A repeated event then becomes a no-op.
@@ -1795,6 +2126,7 @@ Do not claim that manual offset commits alone prevent duplicates. A crash can al
 
 ---
 
+<a id="rapid-q4"></a>
 ## 4. One microservice goes down during checkout. What should happen to the overall workflow?
 
 Classify the service:
@@ -1820,6 +2152,7 @@ The choice is a business SLA decision, not just a technical one.
 
 ---
 
+<a id="rapid-q5"></a>
 ## 5. Database queries are fast, but the API is slow. What else could be causing the latency?
 
 Check time outside SQL execution:
@@ -1840,6 +2173,7 @@ Trace timing should expose the dominant phase.
 
 ---
 
+<a id="rapid-q6"></a>
 ## 6. Your service works in staging but randomly fails in production. Where do you start?
 
 Start with **differences**, not code speculation:
@@ -1862,6 +2196,23 @@ Random production-only failures often indicate races, resource exhaustion, timeo
 Correlate failures by pod, node, tenant, request type and dependency to find a pattern.
 
 ---
+
+<a id="rapid-q7"></a>
+### Transactional Outbox flow
+
+```mermaid
+flowchart LR
+    P[Payment Service] --> TX{Single DB transaction}
+    TX --> PD[(Payment = SUCCESS)]
+    TX --> OB[(Outbox: PaymentCompleted)]
+    OB --> PUB[Outbox Publisher / CDC]
+    PUB --> K[Kafka]
+    K --> O[Order Service]
+    O --> ID[Idempotent Consumer]
+    ID --> OD[(Order = PAID)]
+    RC[Reconciliation Job] -. verifies .-> PD
+    RC -. verifies .-> OD
+```
 
 ## 7. A payment succeeds, but Order Service doesn't receive the confirmation. How would you handle this?
 
@@ -1898,6 +2249,7 @@ because mature payment systems do not rely on a single message path as the only 
 
 ---
 
+<a id="rapid-q8"></a>
 ## 8. CPU is only 20%, but requests are timing out. What would you investigate?
 
 Investigate waiting and saturation:
@@ -1917,6 +2269,7 @@ Low CPU plus high latency is a strong clue that work is blocked or queued rather
 
 ---
 
+<a id="rapid-q9"></a>
 ## 9. One service is receiving much more traffic than others. How would you handle it?
 
 First decide whether the traffic is legitimate, skewed, or abusive.
@@ -1937,6 +2290,7 @@ Do not scale if the true bottleneck is a shared DB or downstream quota.
 
 ---
 
+<a id="rapid-q10"></a>
 ## 10. Kafka consumer lag keeps increasing. What could be the reason?
 
 Fundamentally:
@@ -1964,6 +2318,7 @@ Measure records/sec and processing latency before changing Kafka consumer proper
 
 ---
 
+<a id="rapid-q11"></a>
 ## 11. A database connection pool is exhausted while the database itself is healthy. Why?
 
 Because the bottleneck may be in the application path to the database rather than DB engine health.
@@ -1981,6 +2336,7 @@ Inspect pool active/pending/acquisition time and transaction duration.
 
 ---
 
+<a id="rapid-q12"></a>
 ## 12. Adding more instances doesn't improve application performance. What could be the bottleneck?
 
 Look for a non-scaled/shared constraint:
@@ -2000,6 +2356,21 @@ license/quota
 Horizontal service scaling only helps when the service instance itself is the bottleneck and the workload can be parallelized.
 
 ---
+
+<a id="rapid-q13"></a>
+### Stale-data debugging flow
+
+```mermaid
+flowchart LR
+    U[User] --> BC[Browser Cache]
+    BC --> CDN[CDN]
+    CDN --> GW[Gateway Cache]
+    GW --> LC[Service Local Cache]
+    LC --> R[(Redis)]
+    R --> RR[(Read Replica)]
+    RR --> DB[(Primary DB)]
+    K[Kafka projection] -. lag? .-> LC
+```
 
 ## 13. Users are seeing stale data even though the database has been updated. How would you debug it?
 
@@ -2030,6 +2401,7 @@ Determine **which layer returned the stale value** before changing TTLs.
 
 ---
 
+<a id="rapid-q14"></a>
 ## 14. A request travels through 6 microservices. How would you trace it end-to-end?
 
 Generate/accept a trace context at ingress and propagate it through every synchronous and asynchronous hop.
@@ -2045,6 +2417,7 @@ For asynchronous workflows, preserve correlation/business IDs as well because a 
 
 ---
 
+<a id="rapid-q15"></a>
 ## 15. An external API takes 20 seconds to respond. How would you protect your service?
 
 Do not allow your service to inherit the external API's 20-second behavior blindly.
@@ -2063,6 +2436,7 @@ If the external API is mandatory and no fallback exists, fail fast with an appro
 
 ---
 
+<a id="rapid-q16"></a>
 ## 16. A retry mechanism causes duplicate transactions. How would you fix it?
 
 The retry is exposing a missing idempotency guarantee.
@@ -2081,6 +2455,7 @@ Do not "fix" duplicates simply by removing every retry; networks produce ambigui
 
 ---
 
+<a id="rapid-q17"></a>
 ## 17. One slow microservice starts affecting multiple services. Which resilience pattern would you consider?
 
 The primary concern is cascading failure. Use a combination of:
@@ -2093,6 +2468,7 @@ Retry is optional and must be bounded. The bulkhead stops the slow dependency fr
 
 ---
 
+<a id="rapid-q18"></a>
 ## 18. Your application suddenly starts consuming excessive memory. How would you investigate?
 
 Determine heap vs native memory, then compare before/after behavior.
@@ -2118,6 +2494,7 @@ Also inspect recent code/config changes such as cache size, batch size, queue li
 
 ---
 
+<a id="rapid-q19"></a>
 ## 19. Production has an issue, but there are no exceptions in the logs. What would you check?
 
 Many production failures are not exception-driven.
@@ -2143,6 +2520,23 @@ Check:
 "No exception" can simply mean the application is waiting until a timeout rather than throwing early.
 
 ---
+
+<a id="rapid-q20"></a>
+### 15-minute incident flow
+
+```mermaid
+flowchart TD
+    A[Critical incident] --> S[Scope impact + SLO]
+    S --> C[Check recent changes]
+    C --> G[Golden signals: traffic, errors, latency, saturation]
+    G --> T[Trace failing / slow path]
+    T --> M{Safe mitigation available?}
+    M -->|Yes| R[Rollback / feature flag / shed load / isolate]
+    M -->|No| E[Preserve evidence + narrow bottleneck]
+    R --> V[Verify recovery]
+    E --> V
+    V --> RCA[Full RCA + prevention after service restored]
+```
 
 ## 20. You have 15 minutes to find the root cause of a critical production incident. What's your approach?
 
@@ -2199,8 +2593,32 @@ Perform root-cause analysis, identify contributing factors, add observability/al
 
 ---
 
+# Visual System Design Map
+
+```mermaid
+flowchart TD
+    C[Client] --> E[Ingress / API Gateway]
+    E --> S[Spring Boot Microservice]
+    S --> DB[(Database)]
+    S --> R[(Redis)]
+    S --> DS[Downstream Service]
+    S --> K[Kafka]
+    K --> CON[Consumers]
+    S --> O[Observability]
+    O --> M[Metrics]
+    O --> T[Traces]
+    O --> L[Logs]
+    E --> SEC[Authentication / Rate Limiting]
+    S --> RES[Timeout / Retry / Circuit Breaker / Bulkhead]
+```
+
+Use this map while answering interview scenarios: locate the failing hop, identify the finite resource at that hop, contain the blast radius, then fix the root cause.
+
+---
+
 # Cross-Cutting Architect Mental Models
 
+<a id="rapid-q1"></a>
 ## 1. Latency budget
 
 Do not independently configure every service with a 5-second timeout.
@@ -2220,6 +2638,7 @@ Nested calls must respect the remaining deadline. Otherwise a 2-second frontend 
 
 ---
 
+<a id="rapid-q2"></a>
 ## 2. Cascading failure model
 
 ```text
@@ -2237,6 +2656,7 @@ Break the loop with bounded queues, timeouts, bulkheads, circuit breakers, load 
 
 ---
 
+<a id="rapid-q3"></a>
 ## 3. Idempotency model
 
 The key idea is not "detect duplicate HTTP requests." It is:
@@ -2256,6 +2676,7 @@ and atomic state transitions.
 
 ---
 
+<a id="rapid-q4"></a>
 ## 4. Reliable DB + Kafka model
 
 Avoid:
@@ -2287,6 +2708,7 @@ This gives at-least-once delivery with effectively-once business effects when co
 
 ---
 
+<a id="rapid-q5"></a>
 ## 5. Kubernetes availability model
 
 A resilient deployment requires more than `replicas: 3`.
@@ -2309,6 +2731,7 @@ backward-compatible DB/API/event changes
 
 ---
 
+<a id="rapid-q6"></a>
 ## 6. Observability model
 
 Use all three signals:
