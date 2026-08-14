@@ -1,143 +1,143 @@
-# OAuth 2.0, OIDC & API Security --- Practical Reference
+# OAuth 2.0, OIDC, JWT & API Security --- Deep Understanding Guide
 
-> A structured reference covering API security, OAuth 2.0, OpenID
-> Connect, JWT/opaque tokens, Spring Security internals, microservice
-> token propagation, logout, and authorization design.
+> This guide is intentionally tutorial-style. It explains **why** each
+> mechanism exists, **what happens step-by-step**, and **how the
+> concepts connect in Spring Security and microservices**.
 
-## Table of Contents
+## Contents
 
-1.  [Security Mechanisms](#1-security-mechanisms)
-2.  [API Keys](#2-api-keys)
-3.  [TLS and mTLS](#3-tls-and-mtls)
-4.  [mTLS at Ingress](#4-mtls-at-ingress)
-5.  [Request Signing](#5-request-signing)
-6.  [Sessions, Cookies and CORS](#6-sessions-cookies-and-cors)
-7.  [OAuth vs OIDC](#7-oauth-vs-oidc)
-8.  [OAuth Tokens and Actors](#8-oauth-tokens-and-actors)
-9.  [Authorization Code + PKCE](#9-authorization-code--pkce)
-10. [Client Credentials](#10-client-credentials)
-11. [OAuth Security Defenses](#11-oauth-security-defenses)
-12. [Spring Security Internals](#12-spring-security-internals)
-13. [JWT Validation](#13-jwt-validation)
-14. [Opaque Token Validation](#14-opaque-token-validation)
-15. [JWT vs Opaque](#15-jwt-vs-opaque)
-16. [Microservice Token Propagation](#16-microservice-token-propagation)
-17. [Logout and Session Lifecycle](#17-logout-and-session-lifecycle)
-18. [Scopes, Roles, Permissions and
-    Claims](#18-scopes-roles-permissions-and-claims)
-19. [RBAC, ABAC and Object
-    Authorization](#19-rbac-abac-and-object-authorization)
-20. [Architect Decision Guide](#20-architect-decision-guide)
-21. [Quick Revision](#21-quick-revision)
-
-------------------------------------------------------------------------
-
-## 1. Security Mechanisms
-
-  -------------------------------------------------------------------------------
-  Mechanism               Purpose                         Typical use
-  ----------------------- ------------------------------- -----------------------
-  TLS/HTTPS               Encryption + server             Almost all HTTP APIs
-                          authentication                  
-
-  mTLS                    Mutual client/server            Service-to-service, B2B
-                          authentication                  
-
-  API Key                 Application                     Simple integrations
-                          identification/authentication   
-
-  Session + Cookie        Stateful browser authentication Web apps/BFF
-
-  OAuth 2.0               Delegated API authorization     Modern APIs
-
-  OIDC                    User authentication on OAuth    Login/SSO
-
-  JWT access token        Self-contained access           Distributed APIs
-                          credential                      
-
-  Opaque token            Centrally validated reference   Central control
-                          credential                      
-
-  Request signing         Request authenticity/integrity  Financial/cloud APIs
-  -------------------------------------------------------------------------------
-
-``` text
-TLS / mTLS
-    ↓
-Transport and workload authentication
-
-OAuth Access Token
-    ↓
-API authorization
-
-OIDC ID Token
-    ↓
-User authentication result
-
-Application authorization
-    ↓
-Roles / permissions / ownership / business rules
-```
+1.  [Build the security mental model
+    first](#1-build-the-security-mental-model-first)
+2.  [TLS and mTLS](#2-tls-and-mtls)
+3.  [mTLS when TLS terminates at
+    Ingress](#3-mtls-when-tls-terminates-at-ingress)
+4.  [API keys and request signing](#4-api-keys-and-request-signing)
+5.  [Session/cookie authentication, HttpOnly and
+    CORS](#5-sessioncookie-authentication-httponly-and-cors)
+6.  [Why OAuth exists](#6-why-oauth-exists)
+7.  [OAuth actors](#7-oauth-actors)
+8.  [OAuth vs OIDC](#8-oauth-vs-oidc)
+9.  [Access Token vs ID Token vs Refresh
+    Token](#9-access-token-vs-id-token-vs-refresh-token)
+10. [Authorization Code + PKCE](#10-authorization-code--pkce)
+11. [`state` vs `nonce` vs PKCE](#11-state-vs-nonce-vs-pkce)
+12. [Client Credentials](#12-client-credentials)
+13. [What a Resource Server actually
+    does](#13-what-a-resource-server-actually-does)
+14. [JWT validation --- every step](#14-jwt-validation--every-step)
+15. [JWKS, `kid`, caching and key
+    rotation](#15-jwks-kid-caching-and-key-rotation)
+16. [Does JWT validation happen on every
+    request?](#16-does-jwt-validation-happen-on-every-request)
+17. [Opaque-token validation](#17-opaque-token-validation)
+18. [JWT vs opaque --- the real
+    trade-off](#18-jwt-vs-opaque--the-real-trade-off)
+19. [Spring Security internals](#19-spring-security-internals)
+20. [Scopes, roles, permissions and
+    claims](#20-scopes-roles-permissions-and-claims)
+21. [RBAC, ABAC and object-level
+    authorization](#21-rbac-abac-and-object-level-authorization)
+22. [Token propagation across
+    microservices](#22-token-propagation-across-microservices)
+23. [Logout and token/session
+    lifecycle](#23-logout-and-tokensession-lifecycle)
+24. [Complete architecture](#24-complete-architecture)
+25. [Interview-ready mental models](#25-interview-ready-mental-models)
 
 ------------------------------------------------------------------------
 
-## 2. API Keys
+# 1. Build the security mental model first
 
-An API key is a credential issued to an application.
-
-``` text
-Client
-  │
-  │ X-API-Key: abc123
-  ▼
-API
-  └── validate key
-```
-
-An API key is normally presented directly to the API.
-
-An OAuth client secret is different:
+Do not begin by memorizing OAuth terms. First separate the security
+questions.
 
 ``` text
-Client ── client_secret ──► Authorization Server
-                                │
-                                ▼
-                           Access Token
-                                │
-Client ── Access Token ────────► API
+React UI → Ingress/Gateway → Order Service → Payment Service
 ```
 
-The downstream API normally never needs the OAuth client's secret.
+The system must answer different questions:
+
+``` text
+Can somebody read/modify traffic?
+        ↓
+      TLS
+
+Which machine/service established this connection?
+        ↓
+      mTLS
+
+Who is the human user?
+        ↓
+Session / OIDC
+
+Is this client allowed to call this API?
+        ↓
+OAuth Access Token / API Key
+
+What API capability was granted?
+        ↓
+OAuth Scope
+
+May this caller operate on THIS account/payment?
+        ↓
+Business authorization: RBAC / ABAC / ownership
+```
+
+These are **layers**, not competing alternatives.
+
+A cryptographically valid JWT does not automatically mean that Alice can
+access account `12345`. It only gets you through part of the security
+decision.
 
 ------------------------------------------------------------------------
 
-## 3. TLS and mTLS
+# 2. TLS and mTLS
 
-### Normal TLS
+## TLS
 
-``` text
-Client
-   │ verifies server certificate
-   ▼
-Server
-```
-
-### Mutual TLS
+With normal HTTPS:
 
 ``` text
-Client                               Server
-  │◄──── server certificate ──────────│
-  │──── client certificate ──────────►│
-  └──── encrypted TLS channel ────────┘
+Client                                  Server
+  │                                       │
+  │──── ClientHello ─────────────────────►│
+  │◄── server certificate + handshake ────│
+  │                                       │
+  │ verifies server identity              │
+  │                                       │
+  │════ encrypted HTTP communication ═════│
 ```
 
-With mTLS, both sides authenticate cryptographically.
+TLS primarily gives:
 
-When TLS terminates directly at the servlet container, Java can access
-the validated client certificate chain through the servlet request's
-X.509 certificate attribute.
+-   confidentiality;
+-   integrity of network traffic;
+-   server authentication.
 
-Conceptually:
+User authentication happens at another layer.
+
+## mTLS
+
+mTLS adds client-certificate authentication:
+
+``` text
+Order Service                          Payment Service
+     │                                       │
+     │◄──── server certificate ───────────────│
+     │──── client certificate ───────────────►│
+     │                                       │
+     │       both sides authenticate         │
+     │══════ encrypted connection ═══════════│
+```
+
+Payment Service now knows that the TLS peer possessed the private key
+corresponding to a trusted client certificate.
+
+### Java servlet case
+
+If TLS terminates directly at Tomcat/Jetty, the servlet container
+participated in the TLS handshake and can expose the validated
+certificate chain:
 
 ``` java
 X509Certificate[] certs =
@@ -146,281 +146,418 @@ X509Certificate[] certs =
     );
 ```
 
-The certificate's CN/OU/SAN values are useful only after the TLS layer
-has validated the certificate and its trust chain.
+The correct sequence is:
+
+``` text
+Certificate received
+      ↓
+TLS validates chain/trust
+      ↓
+Servlet exposes validated certificate
+      ↓
+Application reads CN/SAN/OU
+      ↓
+Application maps identity to authorization
+```
+
+Do not treat a `CN` string itself as proof of identity. The trust comes
+from cryptographic certificate validation.
 
 ------------------------------------------------------------------------
 
-## 4. mTLS at Ingress
+# 3. mTLS when TLS terminates at Ingress
 
-If TLS terminates at an Ingress:
+This changes the trust model substantially.
 
 ``` text
-Client
-  │ mTLS
-  ▼
-Ingress
-  │ new HTTP/TLS hop
-  ▼
-Spring Boot
+External Client
+      │
+      │ mTLS connection #1
+      ▼
+    Ingress
+      │
+      │ HTTP or TLS connection #2
+      ▼
+  Spring Boot
 ```
 
-Spring Boot did not participate in the original client TLS handshake.
+The original TLS session **ends at the Ingress**. Spring Boot did not
+see the original TLS handshake.
 
-Therefore the original client certificate is not automatically available
-through the normal servlet X.509 attribute.
+Therefore the normal servlet X.509 attribute cannot magically contain
+the original client certificate.
 
 A common design is:
 
 ``` text
-Client Certificate
-       │
-       ▼
+Client certificate
+       ↓
 Ingress
-  ├─ validate certificate
-  ├─ validate CA/trust
-  └─ derive identity
-       │
-       ▼
-Trusted identity header
-       │
-       ▼
+ ├─ verify trusted CA
+ ├─ validate certificate
+ ├─ derive identity from SAN/subject
+ └─ create trusted internal identity header
+       ↓
 Spring Boot
 ```
 
-Security requirement: external callers must not be able to bypass the
-Ingress and spoof that trusted header. The Ingress should
-strip/overwrite externally supplied identity headers.
+For example:
 
-With TLS passthrough, TLS instead terminates at the application,
-allowing Java to authenticate the client certificate directly.
+``` http
+X-Verified-Client-Subject: CN=order-service,OU=Payments
+```
+
+But this is safe only if:
+
+``` text
+Internet
+   │
+   X── cannot bypass Ingress
+   │
+Ingress
+   │ strips/overwrites external X-Verified-* headers
+   ▼
+Backend
+```
+
+Otherwise an attacker could simply type the trusted header themselves.
+
+With **TLS passthrough**, the original encrypted connection reaches the
+application and Java can authenticate the certificate directly.
 
 ------------------------------------------------------------------------
 
-## 5. Request Signing
+# 4. API keys and request signing
 
-With symmetric HMAC signing:
-
-``` text
-Client                         Server
-  │ Shared Secret K              │ Shared Secret K
-  │                              │
-  │ HMAC(K, request data)        │
-  │──── request + signature ────►│
-  │                              │ recompute + compare
-```
-
-Yes, both sides must securely receive the same secret beforehand.
-
-With asymmetric signing:
+## API key
 
 ``` text
-Client Private Key
-       │
-       └── sign request
-
-Server Public Key
-       │
-       └── verify signature
+Client
+  │ X-API-Key: abc123
+  ▼
+API
+  ├─ look up key
+  ├─ identify application
+  ├─ check active?
+  └─ enforce quota/policy
 ```
 
-Strong request-signing designs include request-specific values such as
-method, URI, body digest, timestamp and nonce to reduce tampering and
-replay.
+An API key is useful for relatively simple application
+identification/access.
+
+It does not naturally model rich user delegation.
+
+### API key is not an OAuth client secret
+
+``` text
+API KEY:
+Client ───── API Key ─────► API
+
+
+OAUTH CLIENT SECRET:
+Client ── client secret ──► Authorization Server
+                                │
+                                ▼
+                           Access Token
+                                │
+Client ───── Access Token ─────► API
+```
+
+## Request signing
+
+With HMAC, client and server share the same secret:
+
+``` text
+Client                              Server
+  │ Secret K                          │ Secret K
+  │                                  │
+  │ HMAC(K, canonical-request)       │
+  │──── request + signature ─────────►│
+  │                                  │ recompute
+  │                                  │ compare
+```
+
+Yes, the secret must be securely provisioned to both sides beforehand.
+
+Asymmetric signing instead uses:
+
+``` text
+Client Private Key → sign
+Server Public Key  → verify
+```
+
+A robust signed request often includes method, URI, body digest,
+timestamp and nonce/request ID to resist tampering and replay.
 
 ------------------------------------------------------------------------
 
-## 6. Sessions, Cookies and CORS
+# 5. Session/cookie authentication, HttpOnly and CORS
 
-Traditional session authentication:
+## Session authentication
 
 ``` text
 Browser
-   │ login
+   │ login credentials
    ▼
-Server
-   │ authenticate
-   │ create session
-   ▼
-JSESSIONID=ABC
+Spring
+   ├─ authenticate
+   ├─ create SecurityContext
+   └─ store in HttpSession
+          ↓
+      session id ABC
+          ↓
+Set-Cookie: JSESSIONID=ABC
 ```
 
-Later:
+Next request:
 
 ``` http
-GET /account
 Cookie: JSESSIONID=ABC
 ```
 
-React or Angular does not prevent browser cookies from working.
+Spring restores:
 
-### HttpOnly
+``` text
+ABC → HttpSession → SecurityContext → Authentication
+```
+
+React/Angular does not prevent this. Cookies are browser functionality.
+
+## HttpOnly
 
 ``` http
 Set-Cookie: JSESSIONID=ABC; HttpOnly; Secure
 ```
 
-``` text
-JavaScript reads HttpOnly cookie?   NO
-Browser sends matching cookie?      YES
-```
-
-`HttpOnly` reduces cookie theft through JavaScript/XSS. It does not by
-itself solve CSRF.
-
-### Secure
-
-`Secure` means the cookie should be sent over HTTPS.
-
-### SameSite
-
-Controls cross-site cookie behavior:
+Means:
 
 ``` text
-Strict
-Lax
-None
+JavaScript reads cookie directly?  NO
+Browser sends matching cookie?     YES
 ```
 
-### Cross-origin credentials
+`HttpOnly` helps reduce cookie theft through injected JavaScript. It is
+not a complete XSS or CSRF solution.
 
-A frontend may use:
+## CORS credentials
+
+Frontend:
 
 ``` javascript
 fetch("https://api.example.com/me", {
-    credentials: "include"
+  credentials: "include"
 });
 ```
 
-The server may need:
+This asks the browser to include applicable credentials such as cookies.
+
+Server may respond:
 
 ``` http
-Access-Control-Allow-Origin: https://frontend.example.com
+Access-Control-Allow-Origin: https://ui.example.com
 Access-Control-Allow-Credentials: true
 ```
 
-Important:
-
-> CORS controls what cross-origin responses browser JavaScript may
-> access. It is not a substitute for server-side authentication or
-> authorization.
-
-A server can process a request even though the browser later refuses to
-expose its response to JavaScript.
-
-### Preflight
+A crucial distinction:
 
 ``` text
-Cross-origin request
-       │
-       ▼
-CORS simple request?
-    /       \
-  YES       NO
-   │         │
- send      OPTIONS
- request    preflight
-             │
-             ▼
-        allowed?
+Request reaches API
+      ↓
+API may authenticate/process it
+      ↓
+Response reaches browser
+      ↓
+Browser applies CORS policy
+      ↓
+JavaScript may or may not be allowed to read response
+```
+
+Therefore, missing `Access-Control-Allow-Credentials: true` does **not**
+mean the server necessarily refused to execute the request.
+
+CORS is primarily a browser cross-origin response-sharing policy, **not
+server authorization**.
+
+## Preflight
+
+For a non-simple cross-origin request, the browser itself sends
+`OPTIONS` first:
+
+``` text
+JavaScript wants cross-origin request
+          ↓
+Browser checks method/headers/content-type
+          ↓
+Simple CORS request?
+     ┌────┴────┐
+    YES        NO
+     │          │
+actual       OPTIONS
+request      preflight
 ```
 
 ------------------------------------------------------------------------
 
-## 7. OAuth vs OIDC
+# 6. Why OAuth exists
+
+Imagine a finance application wants access to Alice's bank transactions.
+
+Bad design:
 
 ``` text
-OAuth 2.0
-    ↓
-Authorization
-    ↓
-Can this client access an API?
-
-
-OIDC
-    ↓
-Authentication layer on OAuth
-    ↓
-Who is the user?
+Alice gives bank username/password
+to Finance App
+      ↓
+Finance App impersonates Alice
 ```
 
-### Access Token vs ID Token
+Problems: password sharing, excessive privilege, difficult revocation,
+poor auditing.
+
+OAuth changes the model:
 
 ``` text
-Access Token
-     ↓
-Resource Server/API
-
-
-ID Token
-     ↓
-OIDC Client
+Alice
+  │ authorizes limited access
+  ▼
+Authorization Server
+  │ issues limited Access Token
+  ▼
+Finance App
+  │ token
+  ▼
+Bank API
 ```
 
-Do not use an ID Token as an API access token.
+Alice's password remains with the Authorization Server.
+
+The Finance App gets a **delegated credential**, potentially limited by
+resource, scope and lifetime.
+
+That is the core idea:
+
+> **OAuth is about delegated authorization.**
 
 ------------------------------------------------------------------------
 
-## 8. OAuth Tokens and Actors
+# 7. OAuth actors
 
-Main actors:
+Concrete mapping:
+
+``` text
+Alice                         Resource Owner
+Finance App                   Client
+login.bank.com                Authorization Server
+api.bank.com                  Resource Server
+```
+
+Flow:
 
 ``` text
 Resource Owner
-    usually user
-
-Client
-    requests access
-
+     ↓
+   Client
+     ↓ authorization
 Authorization Server
-    issues tokens
-
+     ↓ access token
+   Client
+     ↓ access token
 Resource Server
-    accepts access tokens
 ```
 
-### Access Token
-
-``` http
-Authorization: Bearer <access-token>
-```
-
-Used by an API for authorization.
-
-### ID Token
-
-OIDC authentication result intended for the client application.
-
-### Refresh Token
-
-Used to obtain new access tokens without repeating the full interactive
-login.
+The Resource Server normally does not issue the access token; it
+**accepts and validates** it.
 
 ------------------------------------------------------------------------
 
-## 9. Authorization Code + PKCE
+# 8. OAuth vs OIDC
 
 ``` text
-Client
-  │ authorization request
-  ▼
-Authorization Server
-  │ user authentication
-  ▼
-Authorization Code
-  │
-  ▼
-Client
-  │ code + code_verifier
-  ▼
-Token Endpoint
-  │
-  ├─ Access Token
-  ├─ ID Token (OIDC)
-  └─ Refresh Token (possibly)
+OAuth 2.0
+   ↓
+Authorization
+   ↓
+"What access was granted to the client?"
+
+
+OpenID Connect
+   ↓
+Authentication layer using OAuth infrastructure
+   ↓
+"Who authenticated?"
 ```
 
-PKCE:
+OIDC adds identity semantics, most notably the **ID Token**.
+
+------------------------------------------------------------------------
+
+# 9. Access Token vs ID Token vs Refresh Token
+
+## Access Token
+
+``` text
+Client ── Access Token ──► Resource Server
+```
+
+Used for API authorization.
+
+## ID Token
+
+``` text
+Authorization Server ── ID Token ──► OIDC Client
+```
+
+Used by the client as an authentication result/identity assertion.
+
+Do **not** use the ID Token as a substitute for the API access token.
+
+## Refresh Token
+
+``` text
+Client ── Refresh Token ──► Authorization Server
+                                  │
+                                  ▼
+                           New Access Token
+```
+
+A refresh token normally goes to the token endpoint, not to business
+APIs.
+
+Mental model:
+
+``` text
+ID Token      → CLIENT asks: who authenticated?
+Access Token  → API asks: what access is granted?
+Refresh Token → AUTH SERVER asks: may I issue fresh access?
+```
+
+------------------------------------------------------------------------
+
+# 10. Authorization Code + PKCE
+
+``` text
+Browser/Client
+      │ 1. authorization request
+      ▼
+Authorization Server
+      │ 2. authenticate user
+      │ 3. obtain authorization
+      ▼
+Browser/Client
+      │ 4. authorization code
+      ▼
+Token Endpoint
+      │ 5. code + PKCE verifier
+      ▼
+Client receives tokens
+```
+
+The authorization code is temporary and is exchanged at the token
+endpoint.
+
+## Why PKCE?
+
+Client generates:
 
 ``` text
 code_verifier = random secret
@@ -429,27 +566,54 @@ code_challenge =
 BASE64URL(SHA256(code_verifier))
 ```
 
-The challenge goes with the authorization request. The verifier goes
-with code redemption.
+Authorization request sends the challenge.
+
+Token request sends the verifier.
 
 ``` text
-Stolen authorization code
-          +
-No correct verifier
-          ↓
-        REJECT
+Attacker steals authorization code
+              │
+              ▼
+Does attacker know verifier?
+              │
+             NO
+              ↓
+            REJECT
 ```
 
-PKCE therefore protects authorization-code redemption.
+PKCE is therefore a **code-redemption binding mechanism**, not
+encryption of the authorization code.
 
 ------------------------------------------------------------------------
 
-## 10. Client Credentials
+# 11. `state` vs `nonce` vs PKCE
 
-Used for machine-to-machine calls with no human user.
+Keep these separate:
 
 ``` text
-OrderService
+state
+  → correlates authorization response to request
+  → helps defend authorization-response CSRF/confusion
+
+PKCE
+  → proves code redeemer has original verifier
+  → protects authorization-code redemption
+
+nonce
+  → binds OIDC authentication response/ID Token
+    to the authentication request
+```
+
+One login can use all three because they solve different problems.
+
+------------------------------------------------------------------------
+
+# 12. Client Credentials
+
+For machine-to-machine access:
+
+``` text
+Order Service
      │ client authentication
      │ grant_type=client_credentials
      ▼
@@ -459,160 +623,53 @@ Authorization Server
 Access Token
      │
      ▼
-PaymentService
+Order Service
+     │ Bearer token
+     ▼
+Payment Service
 ```
 
-The token represents client/workload authority rather than a logged-in
-user.
+There is no human user in this flow.
 
-Client authentication can use mechanisms such as:
+The token represents authority granted to the client/workload.
 
-``` text
-client_secret
-private_key_jwt
-mTLS
-```
-
-Refresh tokens are normally unnecessary for classic client credentials
-because the service can authenticate again and obtain another access
-token.
+Client authentication can use a client secret, `private_key_jwt`, mTLS,
+or other supported mechanisms.
 
 ------------------------------------------------------------------------
 
-## 11. OAuth Security Defenses
+# 13. What a Resource Server actually does
 
-  Problem                               Defense
-  ------------------------------------- -----------------------------------
-  Authorization-code interception       PKCE
-  Callback CSRF/transaction confusion   `state`
-  ID Token replay/substitution          `nonce` + validation
-  Redirect manipulation                 Strict redirect URI validation
-  JWT modification                      Signature validation
-  Wrong issuer                          `iss` validation
-  Token for wrong API                   `aud` validation
-  Expired token                         `exp` validation
-  Excess authority                      Least-privilege scopes
-  Bearer-token theft                    Short lifetime, DPoP/mTLS binding
-  Refresh-token replay                  Rotation/reuse detection
-  SPA secret leakage                    No static secret in public client
+Suppose Payment API receives:
 
-Mental model:
-
-``` text
-Authorization Request
-       │
-       ├── state ──► authorization response correlation
-       ├── PKCE ───► code redemption
-       └── nonce ──► OIDC ID Token/authentication result
+``` http
+POST /payments
+Authorization: Bearer <access-token>
 ```
 
-### Bearer tokens
-
-A bearer token means possession can be sufficient to use it.
-
-Sender-constrained tokens strengthen this:
+It must answer:
 
 ``` text
-Token
-  +
-proof of private-key possession
+Is token authentic/active?
         ↓
-Access
+Is it expired?
+        ↓
+Do I trust its issuer?
+        ↓
+Was it intended for this API?
+        ↓
+Does it have required scope?
+        ↓
+Does business policy permit THIS operation?
 ```
 
-Examples include DPoP and mTLS-bound access tokens.
+The first several questions are token authentication/validation.
+
+The last questions are authorization.
 
 ------------------------------------------------------------------------
 
-## 12. Spring Security Internals
-
-Keep these three roles separate:
-
-``` text
-oauth2Login()
-    → log user into Spring application
-
-oauth2Client()
-    → Spring obtains/uses tokens for outbound calls
-
-oauth2ResourceServer()
-    → Spring validates incoming access tokens
-```
-
-### `oauth2Login()`
-
-``` text
-Browser
-   │ protected request
-   ▼
-SecurityFilterChain
-   │
-   ▼
-OAuth2AuthorizationRequestRedirectFilter
-   │
-   ├─ build authorization request
-   ├─ state
-   ├─ nonce
-   └─ PKCE where applicable
-   ▼
-Authorization Server
-   │
-   ▼
-callback: code + state
-   │
-   ▼
-OAuth2LoginAuthenticationFilter
-   │
-   ├─ correlate original request
-   └─ exchange code
-   ▼
-Token Endpoint
-   │
-   ├─ Access Token
-   └─ ID Token
-   ▼
-OIDC validation/user loading
-   │
-   ▼
-OidcUser
-   │
-   ▼
-OAuth2AuthenticationToken
-   │
-   ▼
-SecurityContext
-   │
-   ▼
-HTTP Session/JSESSIONID
-```
-
-### Resource Server
-
-``` text
-Client
-   │ Bearer token
-   ▼
-BearerTokenAuthenticationFilter
-   │
-   ▼
-AuthenticationManager
-   │
-   ├── JWT
-   │    ↓
-   │ JwtAuthenticationProvider
-   │    ↓
-   │ JwtDecoder
-   │
-   └── Opaque
-        ↓
-     OpaqueTokenAuthenticationProvider
-        ↓
-     OpaqueTokenIntrospector
-```
-
-------------------------------------------------------------------------
-
-## 13. JWT Validation
+# 14. JWT validation --- every step
 
 JWT:
 
@@ -620,7 +677,7 @@ JWT:
 HEADER.PAYLOAD.SIGNATURE
 ```
 
-Example header:
+Example:
 
 ``` json
 {
@@ -629,11 +686,11 @@ Example header:
 }
 ```
 
-Example claims:
+Claims:
 
 ``` json
 {
-  "iss": "https://auth.example.com",
+  "iss": "https://auth.company.com",
   "sub": "alice",
   "aud": "payment-api",
   "scope": "payments.read",
@@ -641,151 +698,198 @@ Example claims:
 }
 ```
 
-### Signing
+Issuer signs with a **private key**:
 
 ``` text
-Authorization Server
-
+header + payload
+      ↓
 Private Key
-    │
-    └── signs JWT
+      ↓
+signature
+```
 
+Resource Server verifies with the corresponding **public key**.
 
+Full validation:
+
+``` text
+Bearer JWT
+   ↓
+Parse header
+   ↓
+kid = KEY-A
+   ↓
+Find trusted Public Key A
+   ↓
+Verify signature
+   ↓
+Validate iss
+   ↓
+Validate exp/nbf
+   ↓
+Validate configured aud
+   ↓
+Run custom token validators
+   ↓
+Convert scopes/claims to authorities
+   ↓
+Authentication established
+```
+
+### Signature is necessary, but not sufficient
+
+A valid signature means the signed data has not been modified and was
+signed by the holder of the corresponding trusted private key.
+
+You must still ask:
+
+``` text
+Trusted issuer?
+Not expired?
+Correct audience?
+Required scope?
+Correct tenant?
+Allowed business object?
+```
+
+------------------------------------------------------------------------
+
+# 15. JWKS, `kid`, caching and key rotation
+
+Authorization Server:
+
+``` text
+Private Key A → signs
+Public Key A  → published
+```
+
+JWKS conceptually contains:
+
+``` text
+KEY-A → Public Key A
+KEY-B → Public Key B
+```
+
+JWT header contains:
+
+``` text
+kid = KEY-A
+```
+
+Resource Server does:
+
+``` text
+kid=KEY-A
+    ↓
+JWK cache
+    ↓
+Public Key A
+    ↓
+verify signature
+```
+
+## Rotation
+
+Initially:
+
+``` text
+A → Public A
+```
+
+After rotation:
+
+``` text
+A → Public A   (old, temporarily retained)
+B → Public B   (new)
+```
+
+New JWTs use `kid=B`.
+
+A remains during the overlap so unexpired tokens signed with A can still
+be validated.
+
+When old A-signed tokens can no longer be valid, A can be removed.
+
+------------------------------------------------------------------------
+
+# 16. Does JWT validation happen on every request?
+
+**Yes, in a stateless bearer-token Resource Server.**
+
+``` text
+Request #1 + JWT-X
+      ↓
+validate JWT-X
+
+Request #2 + JWT-X
+      ↓
+validate JWT-X again
+```
+
+But this does **not** mean:
+
+``` text
+call Authorization Server every request
+```
+
+Normal path:
+
+``` text
+Request
+  │ JWT, kid=A
+  ▼
 Resource Server
-
-Public Key
-    │
-    └── verifies JWT
+  │
+  ▼
+cached Public Key A
+  │
+  ▼
+verify JWT locally
 ```
 
-### JWKS
-
-JWKS publishes public verification keys:
-
-``` text
-kid=A → Public Key A
-kid=B → Public Key B
-```
-
-### Spring validation path
-
-``` text
-HTTP Request
-     │ Bearer JWT
-     ▼
-BearerTokenAuthenticationFilter
-     │
-     ▼
-JwtAuthenticationProvider
-     │
-     ▼
-JwtDecoder
-     │
-     ├─ select trusted key using kid
-     ├─ verify signature
-     ├─ validate issuer
-     ├─ validate timestamps
-     ├─ validate configured audience
-     └─ custom validators
-     ▼
-JwtAuthenticationToken
-     │
-     ▼
-SecurityContext
-```
-
-### Is JWT validated on every request?
-
-For a stateless Resource Server receiving a bearer JWT:
-
-**Yes.**
-
-Every authenticated bearer request presents the credential again, so
-validation happens again.
-
-But the Authorization Server/JWKS endpoint is **not normally called for
-every request**.
-
-``` text
-Request 1 → JWT → cached public key → local validation
-Request 2 → JWT → cached public key → local validation
-Request 3 → JWT → cached public key → local validation
-```
+The thing normally cached is **public verification key material**, not a
+permanent "this JWT is valid" decision.
 
 Remember:
 
 ``` text
-JWT VALIDATION
-    → every bearer request
+JWT validation every bearer request       YES
 
-JWKS NETWORK LOOKUP
-    → only when required
+JWKS network call every bearer request     NO
 ```
 
-### Key rotation
-
-``` text
-Initially:
-kid=A → Public Key A
-
-After rotation:
-kid=A → Public Key A
-kid=B → Public Key B
-```
-
-Old public keys can remain published during an overlap period so
-still-valid older tokens continue to verify.
-
-If a Resource Server encounters a new unknown `kid`, its JWK
-infrastructure can refresh the key set.
-
-### Issuer outage
-
-If the required public key is already cached, the Resource Server may
-continue locally validating tokens during a temporary issuer/JWKS
-outage.
-
-If a new unknown signing key must be fetched while JWKS is unavailable,
-validation may fail.
+If a new `kid=B` appears and B is absent from the local JWK cache, the
+key source can refresh/retrieve JWKS.
 
 ------------------------------------------------------------------------
 
-## 14. Opaque Token Validation
+# 17. Opaque-token validation
 
 Opaque token:
 
 ``` text
-3f8d9a76c45142c39e...
+7b7c13a9e6f...
 ```
 
-The Resource Server normally validates it through introspection.
+The Resource Server treats it as a reference/uninterpreted credential.
 
 ``` text
 Client
-   │ opaque token
-   ▼
+  │ opaque token
+  ▼
 Resource Server
-   │
-   │ introspection
-   ▼
+  │ introspection request
+  ▼
 Authorization Server
-   │
-   └─ active? scopes? subject? expiry?
-```
-
-Spring:
-
-``` text
-BearerTokenAuthenticationFilter
-        │
-        ▼
-OpaqueTokenAuthenticationProvider
-        │
-        ▼
-OpaqueTokenIntrospector
-        │
-        ▼
-Introspection Endpoint
+  │
+  ├─ token exists?
+  ├─ active?
+  ├─ revoked?
+  ├─ expired?
+  ├─ subject?
+  └─ scopes?
+  ▼
+Resource Server
 ```
 
 Conceptual response:
@@ -794,102 +898,57 @@ Conceptual response:
 {
   "active": true,
   "sub": "alice",
-  "scope": "accounts.read",
-  "exp": 1786690000
+  "scope": "payments.read"
 }
 ```
 
-### Is it validated every request?
+In the normal introspection model, this can happen on **every bearer
+request**.
 
-Normally, each bearer-token request can require introspection.
-
-``` text
-Request 1 → Resource Server → introspection
-Request 2 → Resource Server → introspection
-Request 3 → Resource Server → introspection
-```
-
-Caching can be added, but creates a trade-off:
-
-``` text
-More caching
-   ↓
-better performance
-   +
-slower revocation awareness
-```
+Caching is possible, but then central revocation is not visible until
+the cached result expires.
 
 ------------------------------------------------------------------------
 
-## 15. JWT vs Opaque
+# 18. JWT vs opaque --- the real trade-off
 
-  -----------------------------------------------------------------------
-                          JWT                     Opaque
-  ----------------------- ----------------------- -----------------------
-  Claims embedded         Usually                 Not required
+  Question                         JWT                Opaque
+  -------------------------------- ------------------ -------------------------------
+  Validate every bearer request?   Yes                Yes
+  Where?                           Normally local     Normally Authorization Server
+  Network call each request?       No                 Usually yes
+  Cached item                      Public keys/JWKS   Optional introspection result
+  Immediate central revocation     Harder             Easier
+  Runtime issuer dependency        Lower              Higher
+  Horizontal scaling               Excellent          Introspection must scale
 
-  Validation              Local cryptographic     Introspection
-
-  Validate each bearer    Yes                     Yes
-  request                                         
-
-  Issuer call every       Normally no             Normally yes
-  request                                         
-
-  Key caching             Common                  Not the core model
-
-  Immediate central       Harder                  Easier
-  revocation                                      
-
-  Runtime issuer          Lower                   Higher
-  dependency                                      
-
-  Microservice            Excellent               Requires scalable
-  scalability                                     introspection
-  -----------------------------------------------------------------------
-
-Core picture:
+JWT:
 
 ``` text
-JWT
-──────────────────────────
-Client
-  │ JWT
-  ▼
-Resource Server
-  │
-  ├─ signature
-  ├─ issuer
-  ├─ audience
-  ├─ expiry
-  └─ scope
-  ▼
-LOCAL
-
-
-OPAQUE
-──────────────────────────
-Client
-  │ opaque token
-  ▼
-Resource Server
-  │
-  ▼
-Authorization Server
-  │ introspection
-  ▼
-active?
+Client → Resource Server
+             │
+             ├─ cached public key
+             ├─ signature
+             └─ claims
 ```
 
-### Why JWT revocation is harder
+Opaque:
 
 ``` text
-10:00 token issued
+Client → Resource Server → Authorization Server
+                               │
+                               └─ active?
+```
+
+### Revocation example
+
+``` text
+10:00 JWT issued, expires 11:00
 10:15 user disabled
-11:00 token expires
+10:30 JWT reaches API
 ```
 
-At 10:30 local validation can still show:
+Local validation may still show:
 
 ``` text
 signature ✓
@@ -898,193 +957,90 @@ audience  ✓
 expiry    ✓
 ```
 
-The Resource Server does not inherently know that central account state
-changed.
+The API may accept it because it did not ask the issuer whether central
+user state changed.
 
-Typical mitigations include short-lived access tokens, refresh-token
-revocation, sender-constrained tokens, selective central checks, or
-special deny-list mechanisms.
+This is why JWT systems commonly use short-lived access tokens and
+separate refresh-token/session revocation strategies.
 
 ------------------------------------------------------------------------
 
-## 16. Microservice Token Propagation
+# 19. Spring Security internals
 
-Suppose:
+## JWT
 
 ``` text
-User
- │ T1
- ▼
-Service A
- │
- ▼
-Service B
+HTTP Request
+    ↓
+BearerTokenAuthenticationFilter
+    ↓
+BearerTokenAuthenticationToken
+    ↓
+AuthenticationManager
+    ↓
+JwtAuthenticationProvider
+    ↓
+JwtDecoder
+    ├─ signature verification
+    └─ claim validators
+    ↓
+JwtAuthenticationConverter
+    ↓
+JwtAuthenticationToken
+    ↓
+SecurityContext
+    ↓
+Authorization
 ```
 
-The correct first question is:
-
-> **Whose authority is the downstream call exercising?**
-
-### Token relay
+## Opaque
 
 ``` text
-User ── T1 ──► A ── T1 ──► B
-```
-
-Use only when T1 is actually intended for B.
-
-If:
-
-``` text
-aud = service-a
-```
-
-B should reject it.
-
-### Client Credentials
-
-If B only needs A's service identity:
-
-``` text
-A
-│ client_credentials
-▼
+HTTP Request
+    ↓
+BearerTokenAuthenticationFilter
+    ↓
+AuthenticationManager
+    ↓
+OpaqueTokenAuthenticationProvider
+    ↓
+OpaqueTokenIntrospector
+    ↓
 Authorization Server
-│
-▼
-service token
-│
-▼
-B
+    ↓
+Authenticated principal + authorities
 ```
 
-### Token Exchange / On-Behalf-Of
-
-If B needs delegated user context but a B-specific token:
+Also keep these Spring roles distinct:
 
 ``` text
-User
- │ T1: aud=A
- ▼
-A
- │ exchange
- ▼
-Authorization Server
- │
- ▼
-T2: aud=B
- │
- ▼
-B
+oauth2Login()
+  → log a user into this Spring application
+
+oauth2Client()
+  → use OAuth for outbound API calls
+
+oauth2ResourceServer()
+  → validate incoming Access Tokens
 ```
-
-### Workload identity plus delegated identity
-
-``` text
-mTLS/service mesh
-      ↓
-Which service called me?
-
-OAuth token
-      ↓
-Which user/delegated authority?
-```
-
-Decision:
-
-  -----------------------------------------------------------------------
-  Requirement                         Pattern
-  ----------------------------------- -----------------------------------
-  B needs A only                      Client Credentials
-
-  B needs user and T1 is valid for B  Token relay
-
-  B needs user with B-specific token  Token exchange/OBO
-
-  B needs user + strong service       Delegated token + mTLS/workload
-  identity                            identity
-  -----------------------------------------------------------------------
 
 ------------------------------------------------------------------------
 
-## 17. Logout and Session Lifecycle
+# 20. Scopes, roles, permissions and claims
 
-These are independent:
+## Claim
 
-``` text
-Application Session
-Access Token
-Refresh Token
-IdP SSO Session
-```
-
-Example:
-
-``` text
-App Session    |------30m------|
-Access Token   |--15m--|
-Refresh Token  |-------------8h-------------|
-IdP Session    |----------------12h----------------|
-```
-
-### Local logout
-
-``` text
-POST /logout
-      │
-      ▼
-LogoutFilter
-      │
-      ├─ clear SecurityContext
-      ├─ invalidate HttpSession
-      └─ remove local session
-```
-
-This does not necessarily terminate the IdP SSO session.
-
-### OIDC provider logout
-
-``` text
-Spring App
-   │
-   ▼
-OIDC Provider logout
-   │
-   └─ terminate SSO session
-```
-
-### Important distinction
-
-``` text
-Local logout
-      ≠
-JWT access-token revocation
-      ≠
-Refresh-token revocation
-      ≠
-IdP logout
-```
-
-A copied JWT may remain valid until expiry unless another
-revocation/control mechanism exists.
-
-------------------------------------------------------------------------
-
-## 18. Scopes, Roles, Permissions and Claims
-
-### Claim
-
-Any asserted token information:
+Any asserted token field:
 
 ``` text
 sub
 aud
 scope
-department
 tenant
+department
 ```
 
-### Scope
+## Scope
 
 OAuth delegated API capability:
 
@@ -1093,7 +1049,7 @@ accounts.read
 payments.create
 ```
 
-### Role
+## Role
 
 Business/security classification:
 
@@ -1104,7 +1060,7 @@ BRANCH_MANAGER
 ADMIN
 ```
 
-### Permission
+## Permission
 
 Fine-grained capability:
 
@@ -1113,27 +1069,27 @@ PAYMENT_APPROVE
 ACCOUNT_VIEW
 ```
 
-### Spring `GrantedAuthority`
+A role may map to multiple permissions.
 
-Spring's common authorization representation:
+## Spring `GrantedAuthority`
+
+Spring can represent authorization information as:
 
 ``` text
 SCOPE_payments.read
-ROLE_MANAGER
+ROLE_ADMIN
 PAYMENT_APPROVE
 ```
 
-`hasRole("ADMIN")` conventionally checks for:
-
-``` text
-ROLE_ADMIN
-```
-
-OAuth scopes commonly map as:
+A scope such as:
 
 ``` text
 payments.read
-       ↓
+```
+
+commonly becomes:
+
+``` text
 SCOPE_payments.read
 ```
 
@@ -1143,35 +1099,51 @@ and can be checked with:
 @PreAuthorize("hasAuthority('SCOPE_payments.read')")
 ```
 
+`hasRole("ADMIN")` conventionally checks for `ROLE_ADMIN`.
+
 ------------------------------------------------------------------------
 
-## 19. RBAC, ABAC and Object Authorization
+# 21. RBAC, ABAC and object-level authorization
 
-OAuth scopes usually provide coarse-grained access.
+Suppose Alice has:
 
 ``` text
 SCOPE_accounts.read
 ```
 
-does not automatically mean:
+Request:
 
-``` text
-may read every account
+``` http
+GET /accounts/12345
 ```
 
-### RBAC
+The scope does **not** automatically mean Alice can read every account.
+
+Think in layers:
 
 ``` text
-User
- ↓
-Role
- ↓
-Permissions
+Token valid?
+   ↓
+accounts.read scope?
+   ↓
+Is account 12345 accessible to Alice?
+   ↓
+Correct tenant?
+   ↓
+Other business restrictions?
+   ↓
+ALLOW
 ```
 
-### ABAC
+## RBAC
 
-Uses attributes/context:
+``` text
+User → Role → Permissions
+```
+
+## ABAC
+
+Uses attributes and context:
 
 ``` text
 user.branch == payment.branch
@@ -1179,272 +1151,348 @@ AND
 payment.amount <= user.approvalLimit
 ```
 
-### Object-level authorization
+OAuth scope is usually coarse-grained. Domain/object authorization
+finishes the decision.
 
-For:
+------------------------------------------------------------------------
 
-``` http
-GET /accounts/12345
-```
+# 22. Token propagation across microservices
 
-you may need:
+Suppose:
 
 ``` text
-JWT valid?
+Alice
+  │ T1
+  ▼
+Service A
+  │
+  ▼
+Service B
+```
+
+Do not begin with:
+
+> "Should A forward T1?"
+
+Begin with:
+
+> **Whose authority should B receive?**
+
+## Token relay
+
+``` text
+Alice ── T1 ──► A ── T1 ──► B
+```
+
+Only appropriate if T1 is legitimately intended for B.
+
+If:
+
+``` text
+aud = service-a
+```
+
+B should not accept it merely because the signature is valid.
+
+## Client Credentials
+
+If B only needs Service A's identity/authority:
+
+``` text
+A → Authorization Server → service token → B
+```
+
+## Token Exchange / OBO
+
+If B needs Alice's delegated context but should receive a B-specific
+token:
+
+``` text
+Alice
+ │ T1, aud=A
+ ▼
+A
+ │ exchange
+ ▼
+Authorization Server
+ │
+ ▼
+T2, aud=B
+ │
+ ▼
+B
+```
+
+## mTLS + OAuth
+
+These can complement each other:
+
+``` text
+mTLS
+  → Which workload called me?
+
+OAuth token
+  → What user/service authority is being exercised?
+```
+
+------------------------------------------------------------------------
+
+# 23. Logout and token/session lifecycle
+
+A user may simultaneously have:
+
+``` text
+Spring HttpSession
+IdP SSO session
+Access Token
+Refresh Token
+```
+
+These have independent lifetimes.
+
+## Local logout
+
+``` text
+POST /logout
    ↓
-audience correct?
+clear SecurityContext
    ↓
-accounts.read scope?
+invalidate HttpSession
    ↓
-Does caller have access to account 12345?
-   ↓
-tenant/ownership/business policy?
-   ↓
+remove JSESSIONID
+```
+
+This does not necessarily terminate the IdP SSO session.
+
+So the user may click Login again and be immediately reauthenticated
+because the IdP still has an SSO cookie/session.
+
+## JWT after logout
+
+``` text
+JWT expires at 11:00
+local logout at 10:30
+```
+
+A copied JWT may remain valid until 11:00.
+
+Therefore:
+
+``` text
+Local logout
+   ≠ Access-token revocation
+   ≠ Refresh-token revocation
+   ≠ IdP logout
+```
+
+This is why token lifetime and revocation strategy matter.
+
+------------------------------------------------------------------------
+
+# 24. Complete architecture
+
+``` text
+Browser / Client
+      │
+      │ HTTPS
+      ▼
+Ingress / Gateway
+      │
+      │ optional mTLS identity
+      ▼
+Spring Resource Server
+      │
+      │ Bearer Token
+      ▼
+Token Authentication
+   ┌──┴──────────────┐
+   │                 │
+  JWT              Opaque
+   │                 │
+local validation   introspection
+   │                 │
+cached JWKS       Auth Server
+   └───────┬─────────┘
+           ▼
+     Authentication
+           │
+           ▼
+     OAuth scopes
+           │
+           ▼
+ Roles / permissions
+           │
+           ▼
+Object/domain authorization
+           │
+           ▼
+     Business logic
+           │
+           ▼
+   Downstream service
+      ┌────┼─────────┐
+      │    │         │
+    relay client   token
+          creds   exchange
+```
+
+The clean architecture is:
+
+``` text
+Transport Security
+       ↓
+Authentication
+       ↓
+Token Validation
+       ↓
+OAuth Authorization
+       ↓
+Business Authorization
+       ↓
+Downstream Delegation
+```
+
+------------------------------------------------------------------------
+
+# 25. Interview-ready mental models
+
+## How does JWT validation work?
+
+> A Resource Server extracts the bearer JWT, selects a trusted public
+> key---commonly from cached JWKS using the token's `kid`---verifies the
+> signature, validates issuer and timestamps plus configured
+> audience/policy, converts trusted scopes/claims to authorities, and
+> establishes authentication. This occurs on every stateless
+> bearer-token request, but normally without an Authorization Server
+> call on each request because the verification keys are cached.
+
+## How does opaque validation work?
+
+> The Resource Server treats the token as a reference credential and
+> calls the Authorization Server's introspection endpoint to determine
+> whether it is active and obtain metadata such as subject, scope and
+> expiry. Normally this happens per bearer request unless an explicit
+> cache is introduced.
+
+## JWT vs opaque?
+
+``` text
+JWT
+  → decentralized/local validation
+  → lower runtime coupling
+  → excellent scalability
+  → harder immediate revocation
+
+Opaque
+  → centralized introspection
+  → stronger immediate central control
+  → network/runtime dependency
+```
+
+## mTLS vs OAuth?
+
+Not necessarily alternatives:
+
+``` text
+mTLS  → authenticate workload/connection
+OAuth → authorize API access/delegation
+```
+
+## Is a valid JWT enough?
+
+No:
+
+``` text
+Signature valid?
+      ↓
+Trusted issuer?
+      ↓
+Correct audience?
+      ↓
+Not expired?
+      ↓
+Required scope?
+      ↓
+Can this principal access THIS resource?
+      ↓
+Business policy?
+      ↓
 ALLOW
 ```
 
-Spring can combine coarse and domain authorization:
-
-``` java
-@PreAuthorize(
-    "hasAuthority('SCOPE_accounts.read') && " +
-    "@accountAuthorization.canRead(authentication, #accountId)"
-)
-```
-
-The important distinction is:
-
-``` text
-OAuth authorization
-      ↓
-May use this API capability
-
-Business authorization
-      ↓
-May perform THIS operation
-on THIS resource
-```
-
 ------------------------------------------------------------------------
 
-## 20. Architect Decision Guide
-
-### Browser + BFF
+# Final Memory Map
 
 ``` text
-Browser
-   │ HttpOnly session cookie
-   ▼
-Spring BFF
-   │ OAuth tokens server-side
-   ▼
-Backend APIs
-```
+TLS
+ └─ secure channel
 
-Consider:
+mTLS
+ └─ secure channel + client/workload authentication
 
-``` text
-HttpOnly
-Secure
-SameSite
-CSRF
-CORS
-session expiry
-token refresh
-OIDC logout
-```
+Session
+ └─ browser holds session ID; server holds auth state
 
-### Direct SPA
+OAuth 2.0
+ └─ delegated API authorization
+    ├─ Authorization Code + PKCE
+    └─ Client Credentials
 
-``` text
-React/Angular
-   │ Authorization Code + PKCE
-   ▼
-Authorization Server
-   │
-   ▼
+OIDC
+ └─ authentication/identity layer
+    └─ ID Token
+
 Access Token
-   │
-   ▼
-Resource API
+ └─ goes to Resource Server
+    ├─ JWT → local signature/claim validation
+    └─ Opaque → introspection
+
+Spring Resource Server
+ ├─ BearerTokenAuthenticationFilter
+ ├─ JwtAuthenticationProvider / JwtDecoder
+ └─ OpaqueTokenAuthenticationProvider / Introspector
+
+Authorization
+ ├─ scopes
+ ├─ roles
+ ├─ permissions
+ ├─ RBAC
+ ├─ ABAC
+ └─ object/business rules
+
+Microservices
+ ├─ token relay
+ ├─ client credentials
+ ├─ token exchange/OBO
+ └─ mTLS/workload identity
+
+Logout
+ ├─ local application session
+ ├─ IdP SSO session
+ ├─ access token
+ └─ refresh token
+    → separate lifecycles
 ```
 
-A public SPA must not contain a static client secret.
+## Ten rules worth retaining
 
-### Service-to-service
-
-``` text
-Downstream needs only service?
-       ↓
-Client Credentials
-
-Downstream needs user delegation?
-       ↓
-Token relay if appropriate
-or Token Exchange/OBO
-
-Need strong workload identity too?
-       ↓
-OAuth + mTLS/service identity
-```
-
-### Resource Server
-
-Never stop at:
-
-``` text
-signature valid
-```
-
-Think:
-
-``` text
-signature
-issuer
-audience
-timestamps
-scope
-business authorization
-```
-
-------------------------------------------------------------------------
-
-## 21. Quick Revision
-
-### OAuth vs OIDC
-
-``` text
-OAuth → API authorization
-OIDC  → user authentication on OAuth
-```
-
-### Tokens
-
-``` text
-ID Token     → OIDC Client
-Access Token → Resource Server
-Refresh Token→ Authorization Server/token endpoint
-```
-
-### `state`, PKCE, `nonce`
-
-``` text
-state → authorization transaction correlation / CSRF defense
-
-PKCE → authorization-code redemption protection
-
-nonce → bind OIDC authentication result/ID Token
-```
-
-### JWT
-
-``` text
-BearerTokenAuthenticationFilter
-        ↓
-JwtAuthenticationProvider
-        ↓
-JwtDecoder
-        ↓
-signature + claim validation
-        ↓
-JwtAuthenticationToken
-        ↓
-SecurityContext
-```
-
-Validated on every bearer-token request, normally using cached public
-keys.
-
-### Opaque
-
-``` text
-BearerTokenAuthenticationFilter
-        ↓
-OpaqueTokenAuthenticationProvider
-        ↓
-OpaqueTokenIntrospector
-        ↓
-Authorization Server
-```
-
-Normally introspected for each bearer-token request unless an explicit
-cache changes that behavior.
-
-### One-sentence JWT vs opaque
-
-> JWT favors decentralized/local validation and scalability; opaque
-> tokens favor centralized token-state control at the cost of
-> introspection dependency.
-
-### Scope vs role
-
-``` text
-Scope
-  → OAuth delegated capability
-
-Role
-  → business/security classification
-
-Permission
-  → fine-grained capability
-
-GrantedAuthority
-  → Spring authorization representation
-```
-
-### Final mental model
-
-``` text
-Client
-  │
-  │ TLS / mTLS
-  ▼
-Gateway / Ingress
-  │
-  ▼
-Resource Server
-  │
-  ├── Authenticate credential
-  │      ├─ JWT → local validation
-  │      └─ Opaque → introspection
-  │
-  ├── Validate token policy
-  │      ├─ issuer
-  │      ├─ audience
-  │      ├─ expiry
-  │      └─ signature/active state
-  │
-  ├── OAuth authorization
-  │      └─ scopes
-  │
-  └── Business authorization
-         ├─ roles
-         ├─ permissions
-         ├─ ownership
-         ├─ tenant
-         └─ ABAC/business rules
-```
-
-## Core Principles
-
-1.  Authentication and authorization solve different problems.
-2.  OAuth is primarily authorization; OIDC adds authentication.
-3.  Access Tokens go to Resource Servers; ID Tokens go to OIDC clients.
-4.  PKCE, `state` and `nonce` solve different security problems.
-5.  JWT signature validation alone is insufficient; validate issuer,
-    audience, lifetime and policy.
-6.  JWTs are normally validated locally on every bearer-token request.
-7.  JWKS is not normally contacted on every request because verification
-    keys are cached.
-8.  Opaque tokens normally use introspection and therefore have greater
-    runtime dependency on the Authorization Server.
-9.  Never blindly relay one JWT through every microservice.
-10. Choose downstream credentials based on whose authority the call
-    exercises.
-11. OAuth scopes do not replace object/domain authorization.
-12. Logout, token expiry, token revocation and IdP-session termination
-    are separate.
-13. CORS is a browser security policy, not authentication.
-14. mTLS can establish workload identity while OAuth independently
-    establishes API authorization.
-15. Apply least privilege at every security boundary.
+1.  **TLS protects the channel; it does not replace application
+    authorization.**
+2.  **mTLS can identify a workload; OAuth can independently authorize
+    API access.**
+3.  **OAuth is primarily delegated authorization; OIDC adds
+    authentication.**
+4.  **Access Tokens are for Resource Servers; ID Tokens are for OIDC
+    clients.**
+5.  **PKCE, `state` and `nonce` solve different problems.**
+6.  **JWTs are validated on every stateless bearer request, but JWKS is
+    not normally fetched every time.**
+7.  **Opaque tokens normally require introspection for every bearer
+    request unless caching is deliberately added.**
+8.  **A valid access token does not automatically authorize every
+    business object.**
+9.  **Do not blindly forward one JWT through all microservices; first
+    decide whose authority the downstream call should exercise.**
+10. **Logout, token expiry, token revocation and IdP SSO termination are
+    different lifecycle events.**
