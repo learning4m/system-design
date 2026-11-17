@@ -1,0 +1,20 @@
+sequenceDiagram
+  participant U as Browser
+  participant B as BFF / Relying Party
+  participant K as Keycloak / OpenID Provider
+  participant API as Order API
+  B->>B: Create state, nonce, PKCE verifier/challenge
+  B-->>U: Redirect to /authorize?scope=openid ...
+  U->>K: User authentication / consent
+  K-->>U: Redirect with code + state
+  U->>B: Authorization callback
+  B->>K: Exchange code + PKCE verifier + client authentication
+  K-->>B: ID Token + Access Token (+ optional Refresh Token)
+  B->>B: Validate ID Token, create OidcUser/session
+  opt Additional identity claims needed
+    B->>K: GET /userinfo with ACCESS TOKEN
+    K-->>B: User claims (sub must match ID Token)
+  end
+  B-->>U: Secure BFF session cookie
+  U->>B: Orders request + cookie
+  B->>API: OAuth Access Token

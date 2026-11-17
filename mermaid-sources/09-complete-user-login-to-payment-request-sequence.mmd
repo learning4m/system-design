@@ -1,0 +1,38 @@
+sequenceDiagram
+  autonumber
+  participant U as Alice / React
+  participant I as Ingress
+  participant B as BFF
+  participant R as Redis
+  participant K as Keycloak
+  participant O as Order Service
+  participant P as Payment Service
+
+  U->>I: Open protected application
+  I->>B: Request without authenticated session
+  B->>R: Save pending OIDC authorization state
+  B-->>U: 302 to Keycloak /authorize (state, nonce, PKCE)
+  U->>K: Authenticate (possibly MFA)
+  K-->>U: 302 callback?code=...&state=...
+  U->>I: Browser follows callback
+  I->>B: Callback to OAuth2LoginAuthenticationFilter
+  B->>R: Retrieve matching authorization request/verifier
+  B->>K: Exchange code + PKCE verifier + client auth
+  K-->>B: ID Token, Access Token, optional Refresh Token
+  B->>B: Validate ID Token; establish authenticated OidcUser
+  B->>R: Persist HTTP session and appropriate authorized client state
+  B-->>U: Set secure HTTP session cookie
+  U->>I: POST /api/orders with cookie + CSRF token
+  I->>B: Protected request
+  B->>R: Restore HTTP session/security context
+  B->>B: Authorization + CSRF validation
+  B->>B: Resolve OAuthAuthorizedClient; refresh if needed
+  B->>O: POST /orders Bearer USER_ACCESS_TOKEN
+  O->>O: Validate JWT + order-specific permission
+  O->>K: Exchange subject token for payment audience/scope
+  K-->>O: EXCHANGED_PAYMENT_ACCESS_TOKEN
+  O->>P: POST /payments with exchanged Bearer token
+  P->>P: Validate JWT + payment business rules
+  P-->>O: Payment result
+  O-->>B: Order result
+  B-->>U: HTTP response

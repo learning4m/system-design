@@ -1,0 +1,11 @@
+sequenceDiagram
+  participant U as User browser
+  participant C as Confidential BFF
+  participant AS as Authorization Server
+  U->>C: Visit application
+  C-->>U: Redirect to /authorize?response_type=code&state=...
+  U->>AS: Authenticate + authorize
+  AS-->>U: 302 callback?code=...&state=...
+  U->>C: Callback with code
+  C->>AS: POST /token code + client authentication
+  AS-->>C: Access token (and OIDC ID Token when requested)

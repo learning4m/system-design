@@ -1,0 +1,13 @@
+sequenceDiagram
+  participant U as Browser
+  participant C as OAuth Client / BFF
+  participant AS as Authorization Server
+  C->>C: Generate verifier; derive S256 challenge
+  C-->>U: Redirect with code_challenge
+  U->>AS: GET /authorize ... code_challenge & state
+  AS->>AS: Associate challenge with authorization transaction
+  AS-->>U: Redirect with authorization code
+  U->>C: Callback with code + state
+  C->>AS: POST /token code + code_verifier + optional client auth
+  AS->>AS: Derive challenge from verifier and compare
+  AS-->>C: Access token / ID Token where applicable

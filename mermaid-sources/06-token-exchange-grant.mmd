@@ -1,0 +1,12 @@
+sequenceDiagram
+  participant B as BFF
+  participant O as Order Service
+  participant AS as Keycloak / STS
+  participant P as Payment Service
+  B->>O: AT1: sub=alice, aud=order-service
+  O->>AS: Token Exchange: subject_token=AT1, audience=payment-service
+  AS->>AS: Validate input, authenticated client, exchange policy, scopes
+  AS-->>O: AT2: aud=payment-service, permitted claims/scopes
+  O->>P: Authorization: Bearer AT2
+  P->>P: Check token + business authorization
+  P-->>O: Response

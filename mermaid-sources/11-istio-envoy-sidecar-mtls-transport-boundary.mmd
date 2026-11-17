@@ -1,0 +1,12 @@
+flowchart LR
+  subgraph OrderPod[Order Pod]
+    OA[Order Spring Boot]
+    OE[Order Envoy]
+    OA -->|local HTTP| OE
+  end
+  subgraph PaymentPod[Payment Pod]
+    PE[Payment Envoy]
+    PA[Payment Spring Boot]
+    PE -->|local HTTP| PA
+  end
+  OE <-->|mesh mTLS| PE

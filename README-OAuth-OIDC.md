@@ -1,4 +1,4 @@
-# OAuth 2.0, OpenID Connect, JWT, and Spring Security — Complete Reference
+# OAuth 2.0, OpenID Connect, JWT, and Spring Security — Complete Reference (Portable)
 
 > **Scope:** A consolidated reference from our discussion: all principal OAuth grants; Authorization Code with/without PKCE; OIDC identity; JWT, ID tokens, and access tokens; Spring Security internals; React + Spring Boot BFF + Keycloak + Redis; downstream Token Exchange; Kubernetes/Envoy sidecar mTLS; scaling, failure modes, and security controls.
 >
@@ -7,6 +7,8 @@
 > **Core mental model:** An **OAuth grant** specifies *how a client obtains authorization to receive a token*; **client authentication** identifies the requesting client; **OIDC** proves *user authentication* to a client; an **access token** carries *API authorization*; a **JWT** is a *token format*; a **browser session** keeps the application's login; **mTLS** protects and authenticates the transport peers.
 
 ---
+
+> **Diagram compatibility:** This portable edition uses SVG for all 12 diagrams. The diagrams render as ordinary Markdown images on GitHub, in IntelliJ Markdown preview, and in most documentation viewers. The editable Mermaid (`.mmd`) source files are available in `mermaid-sources/`. Keep the README and the `diagrams/` directory together.
 
 ## Table of contents
 
@@ -81,15 +83,9 @@ Four OAuth roles:
 
 OIDC adds **OpenID Provider (OP)** for identity assertions and calls its client the **Relying Party (RP)**. One Keycloak deployment can serve as both the AS and OP.
 
-```mermaid
-flowchart LR
-  Browser[Browser / User] -->|OIDC browser login| OP[Keycloak OP / AS]
-  Browser -->|Session cookie| BFF[Spring Boot BFF / RP]
-  BFF <-->|Authorization Code, tokens, refresh| OP
-  BFF -->|Access token aud=order-service| Order[Order API / RS]
-  Order <-->|Token Exchange| OP
-  Order -->|Access token aud=payment-service| Payment[Payment API / RS]
-```
+![OAuth roles and trust boundaries](diagrams/01-oauth-roles-and-trust-boundaries.svg)
+
+<sub>Diagram 1: OAuth roles and trust boundaries. Editable Mermaid source: [`01-oauth-roles-and-trust-boundaries.mmd`](mermaid-sources/01-oauth-roles-and-trust-boundaries.mmd).</sub>
 
 **Trust-boundary rules:**
 - Browser cookies go to the BFF, not automatically to downstream services.
@@ -119,19 +115,9 @@ flowchart LR
 
 ### Intended path
 
-```mermaid
-sequenceDiagram
-  participant U as User browser
-  participant C as Confidential BFF
-  participant AS as Authorization Server
-  U->>C: Visit application
-  C-->>U: Redirect to /authorize?response_type=code&state=...
-  U->>AS: Authenticate + authorize
-  AS-->>U: 302 callback?code=...&state=...
-  U->>C: Callback with code
-  C->>AS: POST /token code + client authentication
-  AS-->>C: Access token (and OIDC ID Token when requested)
-```
+![Authorization Code without PKCE](diagrams/02-authorization-code-without-pkce.svg)
+
+<sub>Diagram 2: Authorization Code without PKCE. Editable Mermaid source: [`02-authorization-code-without-pkce.mmd`](mermaid-sources/02-authorization-code-without-pkce.mmd).</sub>
 
 Authorization request (simplified):
 
@@ -178,21 +164,9 @@ code_challenge = BASE64URL_NO_PADDING(SHA256(ASCII(code_verifier)))
 
 ### Execution
 
-```mermaid
-sequenceDiagram
-  participant U as Browser
-  participant C as OAuth Client / BFF
-  participant AS as Authorization Server
-  C->>C: Generate verifier; derive S256 challenge
-  C-->>U: Redirect with code_challenge
-  U->>AS: GET /authorize ... code_challenge & state
-  AS->>AS: Associate challenge with authorization transaction
-  AS-->>U: Redirect with authorization code
-  U->>C: Callback with code + state
-  C->>AS: POST /token code + code_verifier + optional client auth
-  AS->>AS: Derive challenge from verifier and compare
-  AS-->>C: Access token / ID Token where applicable
-```
+![Authorization Code with PKCE](diagrams/03-authorization-code-with-pkce.svg)
+
+<sub>Diagram 3: Authorization Code with PKCE. Editable Mermaid source: [`03-authorization-code-with-pkce.mmd`](mermaid-sources/03-authorization-code-with-pkce.mmd).</sub>
 
 Authorization request adds:
 
@@ -257,17 +231,9 @@ A correctly configured **BFF** keeps its verifier in server-side authorization-r
 
 **Use:** An application acts under its *own* authorization without a human user.
 
-```mermaid
-sequenceDiagram
-  participant O as Order Service
-  participant AS as Keycloak
-  participant P as Payment Service
-  O->>AS: POST /token grant_type=client_credentials + client authentication
-  AS-->>O: Access token (service authorization)
-  O->>P: Bearer access token
-  P->>P: Validate issuer/signature/expiry/aud/scope
-  P-->>O: API response
-```
+![Client Credentials Grant](diagrams/04-client-credentials-grant.svg)
+
+<sub>Diagram 4: Client Credentials Grant. Editable Mermaid source: [`04-client-credentials-grant.mmd`](mermaid-sources/04-client-credentials-grant.mmd).</sub>
 
 Token request:
 
@@ -341,25 +307,9 @@ Two BFF pods can read the same expired access token + RT1 from Redis. Pod A refr
 
 **Problem:** Smart TV / CLI / input-constrained client cannot conveniently accept usernames, passwords, or MFA.
 
-```mermaid
-sequenceDiagram
-  participant TV as Device
-  participant AS as Authorization Server
-  participant Phone as User phone
-  TV->>AS: POST /device_authorization client_id, scope
-  AS-->>TV: device_code, user_code, verification_uri, interval
-  TV-->>Phone: Display verification URL + user code
-  par Approval
-    Phone->>AS: Visit verification URL; authenticate; approve
-  and Polling
-    loop Until approved, denied or expired
-      TV->>AS: POST /token grant_type=device_code & device_code
-      AS-->>TV: authorization_pending / slow_down
-    end
-  end
-  TV->>AS: Poll after approval
-  AS-->>TV: Access token (possibly ID Token for supported OIDC device flow)
-```
+![Device Authorization Grant](diagrams/05-device-authorization-grant.svg)
+
+<sub>Diagram 5: Device Authorization Grant. Editable Mermaid source: [`05-device-authorization-grant.mmd`](mermaid-sources/05-device-authorization-grant.mmd).</sub>
 
 Example request:
 
@@ -405,20 +355,9 @@ Errors: `authorization_pending` (continue at permitted interval), `slow_down` (i
 
 **Use case:** Alice's token is valid for `order-service`, but Order Service needs an appropriately scoped token for `payment-service`. The recipient should not accept an access token whose `aud` excludes it.
 
-```mermaid
-sequenceDiagram
-  participant B as BFF
-  participant O as Order Service
-  participant AS as Keycloak / STS
-  participant P as Payment Service
-  B->>O: AT1: sub=alice, aud=order-service
-  O->>AS: Token Exchange: subject_token=AT1, audience=payment-service
-  AS->>AS: Validate input, authenticated client, exchange policy, scopes
-  AS-->>O: AT2: aud=payment-service, permitted claims/scopes
-  O->>P: Authorization: Bearer AT2
-  P->>P: Check token + business authorization
-  P-->>O: Response
-```
+![Token Exchange Grant](diagrams/06-token-exchange-grant.svg)
+
+<sub>Diagram 6: Token Exchange Grant. Editable Mermaid source: [`06-token-exchange-grant.mmd`](mermaid-sources/06-token-exchange-grant.mmd).</sub>
 
 Example:
 
@@ -552,28 +491,9 @@ OAuth access tokens authorize resource access; OAuth alone does **not** define a
 
 ### Standard OIDC Authorization Code flow
 
-```mermaid
-sequenceDiagram
-  participant U as Browser
-  participant B as BFF / Relying Party
-  participant K as Keycloak / OpenID Provider
-  participant API as Order API
-  B->>B: Create state, nonce, PKCE verifier/challenge
-  B-->>U: Redirect to /authorize?scope=openid ...
-  U->>K: User authentication / consent
-  K-->>U: Redirect with code + state
-  U->>B: Authorization callback
-  B->>K: Exchange code + PKCE verifier + client authentication
-  K-->>B: ID Token + Access Token (+ optional Refresh Token)
-  B->>B: Validate ID Token, create OidcUser/session
-  opt Additional identity claims needed
-    B->>K: GET /userinfo with ACCESS TOKEN
-    K-->>B: User claims (sub must match ID Token)
-  end
-  B-->>U: Secure BFF session cookie
-  U->>B: Orders request + cookie
-  B->>API: OAuth Access Token
-```
+![OIDC Authorization Code flow](diagrams/07-oidc-authorization-code-flow.svg)
+
+<sub>Diagram 7: OIDC Authorization Code flow. Editable Mermaid source: [`07-oidc-authorization-code-flow.mmd`](mermaid-sources/07-oidc-authorization-code-flow.mmd).</sub>
 
 Authorization URL includes:
 
@@ -759,77 +679,17 @@ Do not use a JWT ID Token as an API credential. Signature validation without aud
 
 ### Logical component map
 
-```mermaid
-flowchart TB
-  React[React SPA / Browser]
-  Ingress[Ingress / Gateway]
-  BFF[Spring Boot BFF / OIDC RP]
-  Redis[(Redis - BFF sessions and selected token state)]
-  Keycloak[Keycloak - OP / AS / STS]
-  Order[Order Service - OAuth RS + OAuth Client]
-  Payment[Payment Service - OAuth RS]
-  DB1[(Orders DB)]
-  DB2[(Payments DB)]
-  Settlement[Settlement background job]
+![Production React-BFF-Order-Payment architecture](diagrams/08-production-react-bff-order-payment-architecture.svg)
 
-  React <-->|HTTPS + session cookie, CSRF token| Ingress
-  Ingress <-->|trusted proxy to mesh/BFF| BFF
-  React <-->|browser redirects during OIDC login| Keycloak
-  BFF <-->|authorization code + PKCE, refresh| Keycloak
-  BFF <-->|load/store session and authorized client state| Redis
-  BFF -->|Alice access token aud=order-service| Order
-  Order --> DB1
-  Order <-->|RFC 8693 token exchange| Keycloak
-  Order -->|exchanged token aud=payment-service| Payment
-  Payment --> DB2
-  Settlement <-->|client_credentials| Keycloak
-  Settlement -->|settlement service token| Payment
-```
+<sub>Diagram 8: Production React-BFF-Order-Payment architecture. Editable Mermaid source: [`08-production-react-bff-order-payment-architecture.mmd`](mermaid-sources/08-production-react-bff-order-payment-architecture.mmd).</sub>
 
 The service arrows represent logical calls. When the mesh is in **sidecar mode**, in-mesh traffic physically goes through the source and destination Envoy proxies, even though the application code just makes an HTTP call.
 
 ### One complete user transaction
 
-```mermaid
-sequenceDiagram
-  autonumber
-  participant U as Alice / React
-  participant I as Ingress
-  participant B as BFF
-  participant R as Redis
-  participant K as Keycloak
-  participant O as Order Service
-  participant P as Payment Service
+![Complete user login to payment request sequence](diagrams/09-complete-user-login-to-payment-request-sequence.svg)
 
-  U->>I: Open protected application
-  I->>B: Request without authenticated session
-  B->>R: Save pending OIDC authorization state
-  B-->>U: 302 to Keycloak /authorize (state, nonce, PKCE)
-  U->>K: Authenticate (possibly MFA)
-  K-->>U: 302 callback?code=...&state=...
-  U->>I: Browser follows callback
-  I->>B: Callback to OAuth2LoginAuthenticationFilter
-  B->>R: Retrieve matching authorization request/verifier
-  B->>K: Exchange code + PKCE verifier + client auth
-  K-->>B: ID Token, Access Token, optional Refresh Token
-  B->>B: Validate ID Token; establish authenticated OidcUser
-  B->>R: Persist HTTP session and appropriate authorized client state
-  B-->>U: Set secure HTTP session cookie
-  U->>I: POST /api/orders with cookie + CSRF token
-  I->>B: Protected request
-  B->>R: Restore HTTP session/security context
-  B->>B: Authorization + CSRF validation
-  B->>B: Resolve OAuthAuthorizedClient; refresh if needed
-  B->>O: POST /orders Bearer USER_ACCESS_TOKEN
-  O->>O: Validate JWT + order-specific permission
-  O->>K: Exchange subject token for payment audience/scope
-  K-->>O: EXCHANGED_PAYMENT_ACCESS_TOKEN
-  O->>P: POST /payments with exchanged Bearer token
-  P->>P: Validate JWT + payment business rules
-  P-->>O: Payment result
-  O-->>B: Order result
-  B-->>U: HTTP response
-```
+<sub>Diagram 9: Complete user login to payment request sequence. Editable Mermaid source: [`09-complete-user-login-to-payment-request-sequence.mmd`](mermaid-sources/09-complete-user-login-to-payment-request-sequence.mmd).</sub>
 
 ### Responsibilities by phase
 
@@ -1298,20 +1158,9 @@ BFF architectural goals:
 
 ### 19.2 Refresh race across pods
 
-```mermaid
-sequenceDiagram
-  participant P1 as BFF Pod 1
-  participant P2 as BFF Pod 2
-  participant R as Redis
-  participant K as Keycloak
-  P1->>R: Read expired AT1 + RT1
-  P2->>R: Read expired AT1 + RT1
-  P1->>K: Refresh RT1
-  K-->>P1: AT2 + RT2; RT1 invalidated
-  P2->>K: Refresh RT1
-  K-->>P2: invalid_grant / possible token-family replay detection
-  P1->>R: Save AT2 + RT2 (if not lost)
-```
+![Concurrent refresh-token rotation race](diagrams/10-concurrent-refresh-token-rotation-race.svg)
+
+<sub>Diagram 10: Concurrent refresh-token rotation race. Editable Mermaid source: [`10-concurrent-refresh-token-rotation-race.mmd`](mermaid-sources/10-concurrent-refresh-token-rotation-race.mmd).</sub>
 
 A resilient coordination strategy:
 
@@ -1347,20 +1196,9 @@ Use secure session lifecycle management, appropriate session ID rotation during 
 
 ### 20.1 Actual network path
 
-```mermaid
-flowchart LR
-  subgraph OrderPod[Order Pod]
-    OA[Order Spring Boot]
-    OE[Order Envoy]
-    OA -->|local HTTP| OE
-  end
-  subgraph PaymentPod[Payment Pod]
-    PE[Payment Envoy]
-    PA[Payment Spring Boot]
-    PE -->|local HTTP| PA
-  end
-  OE <-->|mesh mTLS| PE
-```
+![Istio-Envoy sidecar mTLS transport boundary](diagrams/11-istio-envoy-sidecar-mtls-transport-boundary.svg)
+
+<sub>Diagram 11: Istio-Envoy sidecar mTLS transport boundary. Editable Mermaid source: [`11-istio-envoy-sidecar-mtls-transport-boundary.mmd`](mermaid-sources/11-istio-envoy-sidecar-mtls-transport-boundary.mmd).</sub>
 
 In traditional sidecar mode, application-to-local-sidecar traffic may be plaintext within the pod, whereas Envoy-to-Envoy traffic uses mesh mTLS. Actual behavior is deployment- and mesh-mode-dependent. The mesh certificates identify **workloads**, often using SPIFFE-like identities; they do not identify Alice.
 
@@ -1529,19 +1367,9 @@ Log:
 
 ### 22.3 Decision tree
 
-```mermaid
-flowchart TD
-  A[Need a token?] --> B{Is a person authenticating interactively?}
-  B -->|Yes| C[OIDC Authorization Code + PKCE]
-  B -->|No| D{Does workload act under its own authority?}
-  D -->|Yes| E[Client Credentials]
-  D -->|No; another trusted assertion exists| F{What assertion/token context?}
-  F -->|Existing subject/access token, delegation or new audience| G[Token Exchange]
-  F -->|Trusted JWT authorization assertion| H[JWT Bearer Grant]
-  C --> I{Existing access token expired?}
-  I -->|Yes, valid refresh token available| J[Refresh Token Grant]
-  B -->|Login device cannot take input| K[Device Authorization Grant]
-```
+![OAuth grant-selection decision tree](diagrams/12-oauth-grant-selection-decision-tree.svg)
+
+<sub>Diagram 12: OAuth grant-selection decision tree. Editable Mermaid source: [`12-oauth-grant-selection-decision-tree.mmd`](mermaid-sources/12-oauth-grant-selection-decision-tree.mmd).</sub>
 
 The tree is heuristic, not a substitute for issuer capabilities and the actual threat model. Device Authorization also involves a person authenticating, but from another device.
 

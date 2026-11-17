@@ -1,0 +1,17 @@
+sequenceDiagram
+  participant TV as Device
+  participant AS as Authorization Server
+  participant Phone as User phone
+  TV->>AS: POST /device_authorization client_id, scope
+  AS-->>TV: device_code, user_code, verification_uri, interval
+  TV-->>Phone: Display verification URL + user code
+  par Approval
+    Phone->>AS: Visit verification URL; authenticate; approve
+  and Polling
+    loop Until approved, denied or expired
+      TV->>AS: POST /token grant_type=device_code & device_code
+      AS-->>TV: authorization_pending / slow_down
+    end
+  end
+  TV->>AS: Poll after approval
+  AS-->>TV: Access token (possibly ID Token for supported OIDC device flow)

@@ -1,0 +1,7 @@
+flowchart LR
+  Browser[Browser / User] -->|OIDC browser login| OP[Keycloak OP / AS]
+  Browser -->|Session cookie| BFF[Spring Boot BFF / RP]
+  BFF <-->|Authorization Code, tokens, refresh| OP
+  BFF -->|Access token aud=order-service| Order[Order API / RS]
+  Order <-->|Token Exchange| OP
+  Order -->|Access token aud=payment-service| Payment[Payment API / RS]

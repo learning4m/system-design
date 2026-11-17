@@ -1,0 +1,12 @@
+sequenceDiagram
+  participant P1 as BFF Pod 1
+  participant P2 as BFF Pod 2
+  participant R as Redis
+  participant K as Keycloak
+  P1->>R: Read expired AT1 + RT1
+  P2->>R: Read expired AT1 + RT1
+  P1->>K: Refresh RT1
+  K-->>P1: AT2 + RT2; RT1 invalidated
+  P2->>K: Refresh RT1
+  K-->>P2: invalid_grant / possible token-family replay detection
+  P1->>R: Save AT2 + RT2 (if not lost)

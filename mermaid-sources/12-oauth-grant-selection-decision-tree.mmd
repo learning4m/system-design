@@ -1,0 +1,11 @@
+flowchart TD
+  A[Need a token?] --> B{Is a person authenticating interactively?}
+  B -->|Yes| C[OIDC Authorization Code + PKCE]
+  B -->|No| D{Does workload act under its own authority?}
+  D -->|Yes| E[Client Credentials]
+  D -->|No; another trusted assertion exists| F{What assertion/token context?}
+  F -->|Existing subject/access token, delegation or new audience| G[Token Exchange]
+  F -->|Trusted JWT authorization assertion| H[JWT Bearer Grant]
+  C --> I{Existing access token expired?}
+  I -->|Yes, valid refresh token available| J[Refresh Token Grant]
+  B -->|Login device cannot take input| K[Device Authorization Grant]

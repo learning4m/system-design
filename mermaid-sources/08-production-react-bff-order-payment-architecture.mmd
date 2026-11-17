@@ -1,0 +1,24 @@
+flowchart TB
+  React[React SPA / Browser]
+  Ingress[Ingress / Gateway]
+  BFF[Spring Boot BFF / OIDC RP]
+  Redis[(Redis - BFF sessions and selected token state)]
+  Keycloak[Keycloak - OP / AS / STS]
+  Order[Order Service - OAuth RS + OAuth Client]
+  Payment[Payment Service - OAuth RS]
+  DB1[(Orders DB)]
+  DB2[(Payments DB)]
+  Settlement[Settlement background job]
+
+  React <-->|HTTPS + session cookie, CSRF token| Ingress
+  Ingress <-->|trusted proxy to mesh/BFF| BFF
+  React <-->|browser redirects during OIDC login| Keycloak
+  BFF <-->|authorization code + PKCE, refresh| Keycloak
+  BFF <-->|load/store session and authorized client state| Redis
+  BFF -->|Alice access token aud=order-service| Order
+  Order --> DB1
+  Order <-->|RFC 8693 token exchange| Keycloak
+  Order -->|exchanged token aud=payment-service| Payment
+  Payment --> DB2
+  Settlement <-->|client_credentials| Keycloak
+  Settlement -->|settlement service token| Payment
